@@ -104,7 +104,12 @@ export function useSharing(
       const pathMatch = window.location.pathname.match(/^\/p\/([A-Za-z0-9]{6,16})$/);
       if (pathMatch) {
         const pasteId = pathMatch[1];
-        const payload = await loadFromPasteId(pasteId, pasteApiUrl);
+
+        // Extract encryption key from URL fragment: #key=<base64url>
+        const fragment = window.location.hash.slice(1);
+        const encryptionKey = fragment.startsWith('key=') ? fragment.slice(4) : undefined;
+
+        const payload = await loadFromPasteId(pasteId, pasteApiUrl, encryptionKey);
         if (payload) {
           setMarkdown(payload.p);
 
@@ -254,11 +259,12 @@ export function useSharing(
     try {
       let payload: SharePayload | undefined;
 
-      // Check for short URL pattern: /p/<id>
-      const shortMatch = url.match(/\/p\/([A-Za-z0-9]{6,16})(?:\?|$)/);
+      // Check for short URL pattern: /p/<id> with optional #key=<key> fragment
+      const shortMatch = url.match(/\/p\/([A-Za-z0-9]{6,16})(?:#key=([A-Za-z0-9_-]+))?/);
       if (shortMatch) {
         const pasteId = shortMatch[1];
-        const loaded = await loadFromPasteId(pasteId, pasteApiUrl);
+        const encryptionKey = shortMatch[2]; // undefined if no key fragment
+        const loaded = await loadFromPasteId(pasteId, pasteApiUrl, encryptionKey);
         if (!loaded) {
           return { success: false, count: 0, planTitle: '', error: 'Failed to load from short URL — paste may have expired' };
         }
