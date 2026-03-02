@@ -737,7 +737,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
                     setGlobalCommentValue('');
                   }
                   // Enter to submit, Shift+Enter for newline
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault();
                     if (globalCommentValue.trim()) {
                       handleAddGlobalComment();
