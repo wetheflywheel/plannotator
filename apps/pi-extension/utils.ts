@@ -46,7 +46,15 @@ const SAFE_PATTERNS = [
 ];
 
 export function isSafeCommand(command: string): boolean {
-  const isDestructive = DESTRUCTIVE_PATTERNS.some((p) => p.test(command));
+  // Strip safe fd redirects before checking destructive patterns.
+  // This prevents common patterns like `curl ... 2>/dev/null` or
+  // `curl ... 2>&1 | head` from being falsely blocked by the `>` rule.
+  const normalized = command
+    .replace(/\s*\d*>\s*\/dev\/null/g, "")  // N>/dev/null (any fd to /dev/null)
+    .replace(/\s*\d*>&\d+/g, "")            // N>&M (fd merges, e.g. 2>&1)
+    .replace(/\s*&>\s*\/dev\/null/g, "");    // &>/dev/null (bash shorthand)
+
+  const isDestructive = DESTRUCTIVE_PATTERNS.some((p) => p.test(normalized));
   const isSafe = SAFE_PATTERNS.some((p) => p.test(command));
   return !isDestructive && isSafe;
 }
