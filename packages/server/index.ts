@@ -9,7 +9,7 @@
  *   PLANNOTATOR_ORIGIN - Origin identifier ("claude-code" or "opencode")
  */
 
-import { mkdirSync } from "fs";
+import { mkdirSync, existsSync, statSync } from "fs";
 import { resolve } from "path";
 import { isRemoteSession, getServerPort } from "./remote";
 import { openBrowser } from "./browser";
@@ -350,6 +350,84 @@ export async function startPlannotatorServer(
             return Response.json({ vaults });
           }
 
+          // API: List Obsidian vault files as a tree
+          if (url.pathname === "/api/reference/obsidian/files" && req.method === "GET") {
+            const vaultPath = url.searchParams.get("vaultPath");
+            if (!vaultPath) {
+              return Response.json({ error: "Missing vaultPath parameter" }, { status: 400 });
+            }
+
+            const resolvedVault = resolve(vaultPath);
+            if (!existsSync(resolvedVault) || !statSync(resolvedVault).isDirectory()) {
+              return Response.json({ error: "Invalid vault path" }, { status: 400 });
+            }
+
+            try {
+              const glob = new Bun.Glob("**/*.md");
+              const files: string[] = [];
+              for await (const match of glob.scan({ cwd: resolvedVault, onlyFiles: true })) {
+                if (match.includes(".obsidian/") || match.includes(".trash/")) continue;
+                files.push(match);
+              }
+              files.sort();
+
+              const tree = buildFileTree(files);
+              return Response.json({ tree });
+            } catch {
+              return Response.json({ error: "Failed to list vault files" }, { status: 500 });
+            }
+          }
+
+          // API: Read an Obsidian vault document
+          if (url.pathname === "/api/reference/obsidian/doc" && req.method === "GET") {
+            const vaultPath = url.searchParams.get("vaultPath");
+            const filePath = url.searchParams.get("path");
+            if (!vaultPath || !filePath) {
+              return Response.json({ error: "Missing vaultPath or path parameter" }, { status: 400 });
+            }
+            if (!/\.mdx?$/i.test(filePath)) {
+              return Response.json({ error: "Only markdown files are supported" }, { status: 400 });
+            }
+
+            const resolvedVault = resolve(vaultPath);
+            let resolvedFile = resolve(resolvedVault, filePath);
+
+            // If direct path doesn't exist and it's a bare filename, search the vault
+            if (!existsSync(resolvedFile) && !filePath.includes("/")) {
+              const glob = new Bun.Glob(`**/${filePath}`);
+              const matches: string[] = [];
+              for await (const match of glob.scan({ cwd: resolvedVault, onlyFiles: true })) {
+                if (match.includes(".obsidian/") || match.includes(".trash/")) continue;
+                matches.push(resolve(resolvedVault, match));
+              }
+              if (matches.length === 1) {
+                resolvedFile = matches[0];
+              } else if (matches.length > 1) {
+                const relativePaths = matches.map((m) => m.replace(resolvedVault + "/", ""));
+                return Response.json(
+                  { error: `Ambiguous filename '${filePath}': found ${matches.length} matches`, matches: relativePaths },
+                  { status: 400 }
+                );
+              }
+            }
+
+            // Security: must be within vault
+            if (!resolvedFile.startsWith(resolvedVault + "/")) {
+              return Response.json({ error: "Access denied: path is outside vault" }, { status: 403 });
+            }
+
+            try {
+              const file = Bun.file(resolvedFile);
+              if (!(await file.exists())) {
+                return Response.json({ error: `File not found: ${filePath}` }, { status: 404 });
+              }
+              const markdown = await file.text();
+              return Response.json({ markdown, filepath: resolvedFile });
+            } catch {
+              return Response.json({ error: "Failed to read file" }, { status: 500 });
+            }
+          }
+
           // API: Get available agents (OpenCode only)
           if (url.pathname === "/api/agents") {
             if (!options.opencodeClient) {
@@ -571,4 +649,57 @@ export async function handleServerReady(
   if (!isRemote) {
     await openBrowser(url);
   }
+}
+
+// --- Vault file tree helpers ---
+
+export interface VaultNode {
+  name: string;
+  path: string; // relative path within vault
+  type: "file" | "folder";
+  children?: VaultNode[];
+}
+
+/**
+ * Build a nested file tree from a sorted list of relative paths.
+ * Folders are sorted before files at each level.
+ */
+function buildFileTree(relativePaths: string[]): VaultNode[] {
+  const root: VaultNode[] = [];
+
+  for (const filePath of relativePaths) {
+    const parts = filePath.split("/");
+    let current = root;
+    let pathSoFar = "";
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      pathSoFar = pathSoFar ? `${pathSoFar}/${part}` : part;
+      const isFile = i === parts.length - 1;
+
+      let node = current.find((n) => n.name === part && n.type === (isFile ? "file" : "folder"));
+      if (!node) {
+        node = { name: part, path: pathSoFar, type: isFile ? "file" : "folder" };
+        if (!isFile) node.children = [];
+        current.push(node);
+      }
+      if (!isFile) {
+        current = node.children!;
+      }
+    }
+  }
+
+  // Sort: folders first (alphabetical), then files (alphabetical)
+  const sortNodes = (nodes: VaultNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const node of nodes) {
+      if (node.children) sortNodes(node.children);
+    }
+  };
+  sortNodes(root);
+
+  return root;
 }

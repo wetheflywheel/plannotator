@@ -41,6 +41,8 @@ import { deriveImageName } from '@plannotator/ui/components/AttachmentsButton';
 import { useSidebar } from '@plannotator/ui/hooks/useSidebar';
 import { usePlanDiff, type VersionInfo } from '@plannotator/ui/hooks/usePlanDiff';
 import { useLinkedDoc } from '@plannotator/ui/hooks/useLinkedDoc';
+import { useVaultBrowser } from '@plannotator/ui/hooks/useVaultBrowser';
+import { isVaultBrowserEnabled } from '@plannotator/ui/utils/obsidian';
 import { SidebarTabs } from '@plannotator/ui/components/sidebar/SidebarTabs';
 import { SidebarContainer } from '@plannotator/ui/components/sidebar/SidebarContainer';
 import { PlanDiffViewer } from '@plannotator/ui/components/plan-diff/PlanDiffViewer';
@@ -434,6 +436,56 @@ const App: React.FC = () => {
     setMarkdown, setAnnotations, setSelectedAnnotationId, setGlobalAttachments,
     viewerRef, sidebar,
   });
+
+  // Obsidian vault browser
+  const vaultBrowser = useVaultBrowser();
+  const [showVaultTab, setShowVaultTab] = useState(false);
+  const [vaultPath, setVaultPath] = useState('');
+
+  // Sync vault browser visibility when settings change
+  useEffect(() => {
+    const enabled = isVaultBrowserEnabled();
+    setShowVaultTab(enabled);
+    if (enabled) {
+      const settings = getObsidianSettings();
+      setVaultPath(getEffectiveVaultPath(settings));
+    }
+  }, [uiPrefs]); // uiPrefs changes when any settings update
+
+  // Auto-fetch vault tree when vault tab is first opened
+  useEffect(() => {
+    if (sidebar.activeTab === 'vault' && showVaultTab && vaultPath && vaultBrowser.tree.length === 0 && !vaultBrowser.isLoading) {
+      vaultBrowser.fetchTree(vaultPath);
+    }
+  }, [sidebar.activeTab, showVaultTab, vaultPath]);
+
+  // Vault file selection: open via linked doc system with vault endpoint
+  const handleVaultFileSelect = React.useCallback((relativePath: string) => {
+    const vp = vaultPath;
+    linkedDocHook.open(relativePath, (path) =>
+      `/api/reference/obsidian/doc?vaultPath=${encodeURIComponent(vp)}&path=${encodeURIComponent(path)}`
+    );
+    vaultBrowser.setActiveFile(relativePath);
+  }, [vaultPath, linkedDocHook, vaultBrowser]);
+
+  // Route linked doc opens through vault endpoint when viewing a vault file
+  const handleOpenLinkedDoc = React.useCallback((docPath: string) => {
+    if (vaultBrowser.activeFile && vaultPath) {
+      // Currently viewing a vault file — wikilinks should resolve within the vault
+      const vp = vaultPath;
+      linkedDocHook.open(docPath, (path) =>
+        `/api/reference/obsidian/doc?vaultPath=${encodeURIComponent(vp)}&path=${encodeURIComponent(path)}`
+      );
+    } else {
+      linkedDocHook.open(docPath);
+    }
+  }, [vaultBrowser.activeFile, vaultPath, linkedDocHook]);
+
+  // Wrap linked doc back to also clear vault active file
+  const handleLinkedDocBack = React.useCallback(() => {
+    linkedDocHook.back();
+    vaultBrowser.setActiveFile(null);
+  }, [linkedDocHook, vaultBrowser]);
 
   // Track active section for TOC highlighting
   const headingCount = useMemo(() => blocks.filter(b => b.type === 'heading').length, [blocks]);
@@ -1199,6 +1251,7 @@ const App: React.FC = () => {
               activeTab={sidebar.activeTab}
               onToggleTab={sidebar.toggleTab}
               hasDiff={planDiff.hasPreviousVersion}
+              showVaultTab={showVaultTab}
               className="hidden lg:flex"
             />
           )}
@@ -1216,7 +1269,17 @@ const App: React.FC = () => {
                 activeSection={activeSection}
                 onTocNavigate={handleTocNavigate}
                 linkedDocFilepath={linkedDocHook.filepath}
-                onLinkedDocBack={linkedDocHook.isActive ? linkedDocHook.back : undefined}
+                onLinkedDocBack={linkedDocHook.isActive ? handleLinkedDocBack : undefined}
+                showVaultTab={showVaultTab}
+                vaultPath={vaultPath}
+                vaultTree={vaultBrowser.tree}
+                vaultIsLoading={vaultBrowser.isLoading}
+                vaultError={vaultBrowser.error}
+                vaultExpandedFolders={vaultBrowser.expandedFolders}
+                onVaultToggleFolder={vaultBrowser.toggleFolder}
+                onVaultSelectFile={handleVaultFileSelect}
+                vaultActiveFile={vaultBrowser.activeFile}
+                onVaultFetchTree={() => vaultBrowser.fetchTree(vaultPath)}
                 versionInfo={versionInfo}
                 versions={planDiff.versions}
                 projectPlans={planDiff.projectPlans}
@@ -1280,8 +1343,8 @@ const App: React.FC = () => {
                   onPlanDiffToggle={() => setIsPlanDiffActive(!isPlanDiffActive)}
                   hasPreviousVersion={!linkedDocHook.isActive && planDiff.hasPreviousVersion}
                   showDemoBadge={!isApiMode && !isLoadingShared && !isSharedSession}
-                  onOpenLinkedDoc={linkedDocHook.open}
-                  linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: linkedDocHook.back } : null}
+                  onOpenLinkedDoc={handleOpenLinkedDoc}
+                  linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: handleLinkedDocBack, label: vaultBrowser.activeFile ? 'Vault File' : undefined } : null}
                 />
               )}
             </div>
