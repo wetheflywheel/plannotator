@@ -444,7 +444,7 @@ export default function plannotator(pi: ExtensionAPI): void {
           content: `[PLANNOTATOR - PLANNING PHASE]
 You are in plan mode. You MUST NOT make any changes to the codebase — no edits, no commits, no installs, no destructive commands. The ONLY file you may write to or edit is the plan file: ${planFilePath}.
 
-Available tools: read, bash (read-only commands only), grep, find, ls, write (${planFilePath} only), edit (${planFilePath} only), exit_plan_mode
+Available tools: read, bash (read-only commands only — curl/wget for web fetching is allowed), grep, find, ls, write (${planFilePath} only), edit (${planFilePath} only), exit_plan_mode
 
 ## Iterative Planning Workflow
 
@@ -454,7 +454,7 @@ You are pair-planning with the user. Explore the code to build context, then wri
 
 Repeat this cycle until the plan is complete:
 
-1. **Explore** — Use read, grep, find, ls, and bash to understand the codebase. Actively search for existing functions, utilities, and patterns that can be reused — avoid proposing new code when suitable implementations already exist.
+1. **Explore** — Use read, grep, find, ls, and bash to understand the codebase. You can also use bash with curl/wget to fetch web content (e.g. documentation, APIs). Actively search for existing functions, utilities, and patterns that can be reused — avoid proposing new code when suitable implementations already exist.
 2. **Update the plan file** — After each discovery, immediately capture what you learned in ${planFilePath}. Don't wait until the end. Use write for the initial draft, then edit for all subsequent updates.
 3. **Ask the user** — When you hit an ambiguity or decision you can't resolve from code alone, ask. Then go back to step 1.
 
