@@ -5,6 +5,7 @@ import 'highlight.js/styles/github-dark.css';
 import { Block, Annotation, AnnotationType, EditorMode, type ImageAttachment } from '../types';
 import { Frontmatter } from '../utils/parser';
 import { AnnotationToolbar } from './AnnotationToolbar';
+import { CommentPopover } from './CommentPopover';
 import { TaterSpriteSitting } from './TaterSpriteSitting';
 import { AttachmentsButton } from './AttachmentsButton';
 import { MermaidBlock } from './MermaidBlock';
@@ -100,9 +101,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   linkedDocInfo,
 }, ref) => {
   const [copied, setCopied] = useState(false);
-  const [showGlobalCommentInput, setShowGlobalCommentInput] = useState(false);
-  const [globalCommentValue, setGlobalCommentValue] = useState('');
-  const globalCommentInputRef = useRef<HTMLTextAreaElement>(null);
+  const globalCommentButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleCopyPlan = async () => {
     try {
@@ -113,32 +112,6 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
       console.error('Failed to copy:', e);
     }
   };
-
-  const handleAddGlobalComment = () => {
-    if (!globalCommentValue.trim()) return;
-
-    const newAnnotation: Annotation = {
-      id: `global-${Date.now()}`,
-      blockId: '',
-      startOffset: 0,
-      endOffset: 0,
-      type: AnnotationType.GLOBAL_COMMENT,
-      text: globalCommentValue.trim(),
-      originalText: '',
-      createdA: Date.now(),
-      author: getIdentity(),
-    };
-
-    onAddAnnotation(newAnnotation);
-    setGlobalCommentValue('');
-    setShowGlobalCommentInput(false);
-  };
-
-  useEffect(() => {
-    if (showGlobalCommentInput) {
-      globalCommentInputRef.current?.focus();
-    }
-  }, [showGlobalCommentInput]);
   const containerRef = useRef<HTMLDivElement>(null);
   const highlighterRef = useRef<Highlighter | null>(null);
   const modeRef = useRef<EditorMode>(mode);
@@ -148,12 +121,17 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     element: HTMLElement;
     source: any;
     selectionText: string;
-    initialStep?: 'menu' | 'input';
-    initialType?: AnnotationType;
   } | null>(null);
   const [hoveredCodeBlock, setHoveredCodeBlock] = useState<{ block: Block; element: HTMLElement } | null>(null);
   const [isCodeBlockToolbarExiting, setIsCodeBlockToolbarExiting] = useState(false);
-  const [isCodeBlockToolbarLocked, setIsCodeBlockToolbarLocked] = useState(false);
+  const [commentPopover, setCommentPopover] = useState<{
+    anchorEl: HTMLElement;
+    contextText: string;
+    initialText?: string;
+    isGlobal: boolean;
+    source?: any;
+    codeBlock?: { block: Block; element: HTMLElement };
+  } | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const stickySentinelRef = useRef<HTMLDivElement>(null);
   const [isStuck, setIsStuck] = useState(false);
@@ -517,15 +495,13 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             createAnnotationFromSource(highlighter, source, AnnotationType.DELETION);
             window.getSelection()?.removeAllRanges();
           } else if (modeRef.current === 'comment') {
-            // Comment mode - show input directly
-            const selectionText = source.text;
+            // Comment mode - open CommentPopover directly
             pendingSourceRef.current = source;
-            setToolbarState({
-              element: doms[0] as HTMLElement,
+            setCommentPopover({
+              anchorEl: doms[0] as HTMLElement,
+              contextText: source.text.slice(0, 80),
+              isGlobal: false,
               source,
-              selectionText,
-              initialStep: 'input',
-              initialType: AnnotationType.COMMENT,
             });
           } else {
             // Selection mode - show toolbar menu
@@ -565,11 +541,11 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     });
   }, [annotations]);
 
-  const handleAnnotate = (type: AnnotationType, text?: string, images?: ImageAttachment[]) => {
+  const handleAnnotate = (type: AnnotationType) => {
     const highlighter = highlighterRef.current;
     if (!toolbarState || !highlighter) return;
 
-    createAnnotationFromSource(highlighter, toolbarState.source, type, text, images);
+    createAnnotationFromSource(highlighter, toolbarState.source, type);
     pendingSourceRef.current = null;
     setToolbarState(null);
     window.getSelection()?.removeAllRanges();
@@ -584,62 +560,147 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     window.getSelection()?.removeAllRanges();
   };
 
-  const handleCodeBlockAnnotate = (type: AnnotationType, text?: string, images?: ImageAttachment[]) => {
+  const handleCodeBlockAnnotate = (type: AnnotationType) => {
     const highlighter = highlighterRef.current;
     if (!hoveredCodeBlock || !highlighter) return;
 
-    // Find the code element inside the pre
     const codeEl = hoveredCodeBlock.element.querySelector('code');
     if (!codeEl) return;
 
-    // Use highlighter.fromRange which triggers CREATE event internally
-    // We need to handle this synchronously, so we'll create the annotation directly
     const id = `codeblock-${Date.now()}`;
     const codeText = codeEl.textContent || '';
 
-    // Instead of using surroundContents (which breaks with syntax-highlighted code),
-    // we replace the innerHTML entirely with a mark wrapper containing the plain text
     const wrapper = document.createElement('mark');
     wrapper.className = 'annotation-highlight';
     wrapper.dataset.bindId = id;
     wrapper.textContent = codeText;
 
-    // Add the appropriate class
     if (type === AnnotationType.DELETION) {
       wrapper.classList.add('deletion');
-    } else if (type === AnnotationType.COMMENT) {
-      wrapper.classList.add('comment');
     }
 
-    // Replace code element's content with the wrapper
     codeEl.innerHTML = '';
     codeEl.appendChild(wrapper);
 
-    // Create the annotation
     const newAnnotation: Annotation = {
       id,
       blockId: hoveredCodeBlock.block.id,
       startOffset: 0,
       endOffset: codeText.length,
       type,
-      text,
       originalText: codeText,
       createdA: Date.now(),
       author: getIdentity(),
-      images,
     };
 
     onAddAnnotationRef.current(newAnnotation);
-
-    // Clear selection
     window.getSelection()?.removeAllRanges();
     setHoveredCodeBlock(null);
-    setIsCodeBlockToolbarLocked(false);
   };
 
   const handleCodeBlockToolbarClose = () => {
     setHoveredCodeBlock(null);
-    setIsCodeBlockToolbarLocked(false);
+  };
+
+  // CommentPopover handlers
+
+  const handleRequestComment = (initialChar?: string) => {
+    if (!toolbarState) return;
+    setCommentPopover({
+      anchorEl: toolbarState.element,
+      contextText: toolbarState.selectionText.slice(0, 80),
+      initialText: initialChar,
+      isGlobal: false,
+      source: toolbarState.source,
+    });
+    // Close toolbar but keep pendingSourceRef
+    setToolbarState(null);
+  };
+
+  const handleCodeBlockRequestComment = (initialChar?: string) => {
+    if (!hoveredCodeBlock) return;
+    const codeText = hoveredCodeBlock.element.querySelector('code')?.textContent || '';
+    setCommentPopover({
+      anchorEl: hoveredCodeBlock.element,
+      contextText: codeText.slice(0, 80),
+      initialText: initialChar,
+      isGlobal: false,
+      codeBlock: hoveredCodeBlock,
+    });
+    setHoveredCodeBlock(null);
+  };
+
+  const handleCommentSubmit = (text: string, images?: ImageAttachment[]) => {
+    if (!commentPopover) return;
+
+    if (commentPopover.isGlobal) {
+      const newAnnotation: Annotation = {
+        id: `global-${Date.now()}`,
+        blockId: '',
+        startOffset: 0,
+        endOffset: 0,
+        type: AnnotationType.GLOBAL_COMMENT,
+        text: text.trim(),
+        originalText: '',
+        createdA: Date.now(),
+        author: getIdentity(),
+        images,
+      };
+      onAddAnnotation(newAnnotation);
+    } else if (commentPopover.source && highlighterRef.current) {
+      createAnnotationFromSource(
+        highlighterRef.current,
+        commentPopover.source,
+        AnnotationType.COMMENT,
+        text,
+        images
+      );
+      pendingSourceRef.current = null;
+      window.getSelection()?.removeAllRanges();
+    } else if (commentPopover.codeBlock && highlighterRef.current) {
+      // Code block annotation path
+      const { block, element } = commentPopover.codeBlock;
+      const codeEl = element.querySelector('code');
+      if (codeEl) {
+        const id = `codeblock-${Date.now()}`;
+        const codeText = codeEl.textContent || '';
+
+        const wrapper = document.createElement('mark');
+        wrapper.className = 'annotation-highlight comment';
+        wrapper.dataset.bindId = id;
+        wrapper.textContent = codeText;
+
+        codeEl.innerHTML = '';
+        codeEl.appendChild(wrapper);
+
+        const newAnnotation: Annotation = {
+          id,
+          blockId: block.id,
+          startOffset: 0,
+          endOffset: codeText.length,
+          type: AnnotationType.COMMENT,
+          text,
+          originalText: codeText,
+          createdA: Date.now(),
+          author: getIdentity(),
+          images,
+        };
+
+        onAddAnnotationRef.current(newAnnotation);
+        window.getSelection()?.removeAllRanges();
+      }
+    }
+
+    setCommentPopover(null);
+  };
+
+  const handleCommentClose = () => {
+    if (commentPopover?.source && highlighterRef.current) {
+      highlighterRef.current.remove(commentPopover.source.id);
+      pendingSourceRef.current = null;
+    }
+    setCommentPopover(null);
+    window.getSelection()?.removeAllRanges();
   };
 
   return (
@@ -722,69 +783,24 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             />
           )}
 
-          {/* Global comment button/input */}
-          {showGlobalCommentInput ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleAddGlobalComment();
-              }}
-              className="flex items-start gap-1.5 bg-muted/80 rounded-md p-1"
-            >
-              <textarea
-                ref={globalCommentInputRef}
-                rows={1}
-                className="bg-transparent text-xs min-w-40 md:min-w-56 max-w-80 max-h-32 placeholder:text-muted-foreground resize-none px-2 py-1.5 focus:outline-none"
-                style={{ fieldSizing: 'content' } as React.CSSProperties}
-                placeholder="Add a global comment..."
-                value={globalCommentValue}
-                onChange={(e) => setGlobalCommentValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setShowGlobalCommentInput(false);
-                    setGlobalCommentValue('');
-                  }
-                  // Enter to submit, Shift+Enter for newline
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    if (globalCommentValue.trim()) {
-                      handleAddGlobalComment();
-                    }
-                  }
-                }}
-              />
-              <button
-                type="submit"
-                disabled={!globalCommentValue.trim()}
-                className="self-start px-2 py-1.5 text-xs font-medium rounded bg-secondary text-secondary-foreground hover:opacity-90 disabled:opacity-50 transition-all"
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowGlobalCommentInput(false);
-                  setGlobalCommentValue('');
-                }}
-                className="self-start p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </form>
-          ) : (
-            <button
-              onClick={() => setShowGlobalCommentInput(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded-md transition-colors"
-              title="Add global comment"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
-              </svg>
-              <span className="hidden md:inline">Global comment</span>
-            </button>
-          )}
+          {/* Global comment button */}
+          <button
+            ref={globalCommentButtonRef}
+            onClick={() => {
+              setCommentPopover({
+                anchorEl: globalCommentButtonRef.current!,
+                contextText: '',
+                isGlobal: true,
+              });
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded-md transition-colors"
+            title="Add global comment"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+            </svg>
+            <span className="hidden md:inline">Global comment</span>
+          </button>
 
           {/* Copy plan/file button */}
           <button
@@ -855,10 +871,9 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             positionMode="center-above"
             onAnnotate={handleAnnotate}
             onClose={handleToolbarClose}
+            onRequestComment={handleRequestComment}
             copyText={toolbarState.selectionText}
             closeOnScrollOut
-            initialStep={toolbarState.initialStep}
-            initialType={toolbarState.initialType}
           />
         )}
 
@@ -869,6 +884,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             positionMode="top-right"
             onAnnotate={handleCodeBlockAnnotate}
             onClose={handleCodeBlockToolbarClose}
+            onRequestComment={handleCodeBlockRequestComment}
             isExiting={isCodeBlockToolbarExiting}
             onMouseEnter={() => {
               if (hoverTimeoutRef.current) {
@@ -878,8 +894,6 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               setIsCodeBlockToolbarExiting(false);
             }}
             onMouseLeave={() => {
-              // Don't close if toolbar is locked (in input mode)
-              if (isCodeBlockToolbarLocked) return;
               hoverTimeoutRef.current = setTimeout(() => {
                 setIsCodeBlockToolbarExiting(true);
                 setTimeout(() => {
@@ -888,7 +902,18 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
                 }, 150);
               }, 100);
             }}
-            onLockChange={setIsCodeBlockToolbarLocked}
+          />
+        )}
+
+        {/* Comment popover */}
+        {commentPopover && (
+          <CommentPopover
+            anchorEl={commentPopover.anchorEl}
+            contextText={commentPopover.contextText}
+            isGlobal={commentPopover.isGlobal}
+            initialText={commentPopover.initialText}
+            onSubmit={handleCommentSubmit}
+            onClose={handleCommentClose}
           />
         )}
       </article>

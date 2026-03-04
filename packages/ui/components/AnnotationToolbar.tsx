@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { AnnotationType, type ImageAttachment } from "../types";
+import { AnnotationType } from "../types";
 import { createPortal } from "react-dom";
-import { AttachmentsButton } from "./AttachmentsButton";
 import { useDismissOnOutsideAndEscape } from "../hooks/useDismissOnOutsideAndEscape";
 
 type PositionMode = 'center-above' | 'top-right';
@@ -16,22 +15,19 @@ const isEditableElement = (node: EventTarget | Element | null): boolean => {
 interface AnnotationToolbarProps {
   element: HTMLElement;
   positionMode: PositionMode;
-  onAnnotate: (type: AnnotationType, text?: string, images?: ImageAttachment[]) => void;
+  onAnnotate: (type: AnnotationType) => void;
   onClose: () => void;
+  /** Called when user wants to write a comment (opens CommentPopover in parent) */
+  onRequestComment?: (initialChar?: string) => void;
   /** Text to copy (for text selection, pass source.text) */
   copyText?: string;
-  /** Close toolbar when element scrolls out of viewport (only in menu step) */
+  /** Close toolbar when element scrolls out of viewport */
   closeOnScrollOut?: boolean;
   /** Exit animation state */
   isExiting?: boolean;
   /** Hover callbacks for code block behavior */
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
-  onLockChange?: (locked: boolean) => void;
-  /** Start in input step instead of menu (for comment mode) */
-  initialStep?: 'menu' | 'input';
-  /** Pre-set annotation type when starting in input step */
-  initialType?: AnnotationType;
 }
 
 export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
@@ -39,26 +35,18 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   positionMode,
   onAnnotate,
   onClose,
+  onRequestComment,
   copyText,
   closeOnScrollOut = false,
   isExiting = false,
   onMouseEnter,
   onMouseLeave,
-  onLockChange,
-  initialStep = 'menu',
-  initialType,
 }) => {
-  const [step, setStep] = useState<"menu" | "input">(initialStep);
-  const [activeType, setActiveType] = useState<AnnotationType | null>(initialType ?? null);
-  const [inputValue, setInputValue] = useState("");
-  const [images, setImages] = useState<ImageAttachment[]>([]);
   const [position, setPosition] = useState<{ top: number; left?: number; right?: number } | null>(null);
   const [copied, setCopied] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
   const handleCopy = async () => {
-    // Use provided copyText, or fall back to code element / element text
     let textToCopy = copyText;
     if (!textToCopy) {
       const codeEl = element.querySelector('code');
@@ -69,43 +57,17 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // Focus input when entering input step (including on mount with initialStep='input')
+  // Reset copied state when element changes
   useEffect(() => {
-    if (step === "input") {
-      // Use setTimeout to ensure DOM is fully ready (portals can have timing issues)
-      const timeoutId = setTimeout(() => {
-        const input = inputRef.current;
-        if (input) {
-          input.focus();
-          // Move cursor to end (for type-to-comment with pre-populated char)
-          input.selectionStart = input.selectionEnd = input.value.length;
-        }
-      }, 0);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [step, element]); // Also re-run when element changes (new selection)
-
-  // Reset state when element changes
-  useEffect(() => {
-    setStep(initialStep);
-    setActiveType(initialType ?? null);
-    setInputValue("");
-    setImages([]);
     setCopied(false);
-  }, [element, initialStep, initialType]);
-
-  // Notify parent when locked (in input mode)
-  useEffect(() => {
-    onLockChange?.(step === "input");
-  }, [step, onLockChange]);
+  }, [element]);
 
   // Update position on scroll/resize
   useEffect(() => {
     const updatePosition = () => {
       const rect = element.getBoundingClientRect();
 
-      // Close if scrolled out of viewport (only in menu step if enabled)
-      if (closeOnScrollOut && step === "menu" && (rect.bottom < 0 || rect.top > window.innerHeight)) {
+      if (closeOnScrollOut && (rect.bottom < 0 || rect.top > window.innerHeight)) {
         onClose();
         return;
       }
@@ -131,34 +93,24 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
       window.removeEventListener("scroll", updatePosition, true);
       window.removeEventListener("resize", updatePosition);
     };
-  }, [element, positionMode, closeOnScrollOut, step, onClose]);
+  }, [element, positionMode, closeOnScrollOut, onClose]);
 
-  // Type-to-comment: start typing in menu step → auto-transition to comment input
+  // Type-to-comment: typing opens CommentPopover via parent
   useEffect(() => {
-    if (step !== "menu") return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Protect global comment and any editable field focus from type-to-comment capture.
       if (e.isComposing) return;
       if (isEditableElement(e.target) || isEditableElement(document.activeElement)) return;
-      // Escape closes the toolbar
       if (e.key === "Escape") { onClose(); return; }
-      // Ignore if modifier keys are held (except shift for capitals)
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      // Ignore special keys
       if (e.key === "Tab" || e.key === "Enter") return;
-      // Only trigger on printable characters (single char keys)
       if (e.key.length !== 1) return;
 
-      // Transition to comment mode with the typed character
-      setActiveType(AnnotationType.COMMENT);
-      setInputValue(e.key);
-      setStep("input");
+      onRequestComment?.(e.key);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [step, onClose]);
+  }, [onClose, onRequestComment]);
 
   useDismissOnOutsideAndEscape({
     enabled: true,
@@ -172,15 +124,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     if (type === AnnotationType.DELETION) {
       onAnnotate(type);
     } else {
-      setActiveType(type);
-      setStep("input");
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (activeType && (inputValue.trim() || images.length > 0)) {
-      onAnnotate(activeType, inputValue || undefined, images.length > 0 ? images : undefined);
+      onRequestComment?.();
     }
   };
 
@@ -216,77 +160,34 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
           to { opacity: 0; transform: translateY(8px)${translateX}; }
         }
       `}</style>
-      {step === "menu" ? (
-        <div className="flex items-center p-1 gap-0.5">
-          <ToolbarButton
-            onClick={handleCopy}
-            icon={copied ? <CheckIcon /> : <CopyIcon />}
-            label={copied ? "Copied!" : "Copy"}
-            className={copied ? "text-success" : "text-muted-foreground hover:bg-muted hover:text-foreground"}
-          />
-          <div className="w-px h-5 bg-border mx-0.5" />
-          <ToolbarButton
-            onClick={() => handleTypeSelect(AnnotationType.DELETION)}
-            icon={<TrashIcon />}
-            label="Delete"
-            className="text-destructive hover:bg-destructive/10"
-          />
-          <ToolbarButton
-            onClick={() => handleTypeSelect(AnnotationType.COMMENT)}
-            icon={<CommentIcon />}
-            label="Comment"
-            className="text-accent hover:bg-accent/10"
-          />
-          <div className="w-px h-5 bg-border mx-0.5" />
-          <ToolbarButton
-            onClick={onClose}
-            icon={<CloseIcon />}
-            label="Cancel"
-            className="text-muted-foreground hover:bg-muted"
-          />
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="flex items-start gap-1.5 p-1.5 pl-3">
-          <textarea
-            ref={inputRef}
-            rows={1}
-            className="bg-transparent text-sm min-w-44 max-w-80 max-h-32 placeholder:text-muted-foreground resize-none px-2 py-1.5 focus:outline-none focus:bg-muted/30"
-            style={{ fieldSizing: "content" } as React.CSSProperties}
-            placeholder="Add a comment..."
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setStep("menu");
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                if (inputValue.trim() || images.length > 0) {
-                  onAnnotate(activeType!, inputValue || undefined, images.length > 0 ? images : undefined);
-                }
-              }
-            }}
-          />
-          <AttachmentsButton
-            images={images}
-            onAdd={(img) => setImages((prev) => [...prev, img])}
-            onRemove={(path) => setImages((prev) => prev.filter((i) => i.path !== path))}
-            variant="inline"
-          />
-          <button
-            type="submit"
-            disabled={!inputValue.trim() && images.length === 0}
-            className="px-[15px] py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity self-stretch"
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep("menu")}
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            <CloseIcon small />
-          </button>
-        </form>
-      )}
+      <div className="flex items-center p-1 gap-0.5">
+        <ToolbarButton
+          onClick={handleCopy}
+          icon={copied ? <CheckIcon /> : <CopyIcon />}
+          label={copied ? "Copied!" : "Copy"}
+          className={copied ? "text-success" : "text-muted-foreground hover:bg-muted hover:text-foreground"}
+        />
+        <div className="w-px h-5 bg-border mx-0.5" />
+        <ToolbarButton
+          onClick={() => handleTypeSelect(AnnotationType.DELETION)}
+          icon={<TrashIcon />}
+          label="Delete"
+          className="text-destructive hover:bg-destructive/10"
+        />
+        <ToolbarButton
+          onClick={() => handleTypeSelect(AnnotationType.COMMENT)}
+          icon={<CommentIcon />}
+          label="Comment"
+          className="text-accent hover:bg-accent/10"
+        />
+        <div className="w-px h-5 bg-border mx-0.5" />
+        <ToolbarButton
+          onClick={onClose}
+          icon={<CloseIcon />}
+          label="Cancel"
+          className="text-muted-foreground hover:bg-muted"
+        />
+      </div>
     </div>,
     document.body
   );
@@ -317,8 +218,8 @@ const CommentIcon = () => (
   </svg>
 );
 
-const CloseIcon: React.FC<{ small?: boolean }> = ({ small }) => (
-  <svg className={small ? "w-3.5 h-3.5" : "w-4 h-4"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+const CloseIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
