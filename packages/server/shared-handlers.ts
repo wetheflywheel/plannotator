@@ -1,8 +1,8 @@
 /**
  * Shared route handlers used by plan, review, and annotate servers.
  *
- * Eliminates duplication of /api/image, /api/upload, /api/agents,
- * and the server-ready handler across all three server files.
+ * Eliminates duplication of /api/image, /api/upload, and the server-ready
+ * handler across all three server files. Also shares /api/agents for plan + review.
  */
 
 import { mkdirSync } from "fs";
@@ -56,7 +56,7 @@ export async function handleUpload(req: Request): Promise<Response> {
 }
 
 /** OpenCode agent client interface (subset of OpenCode SDK) */
-interface OpencodeClient {
+export interface OpencodeClient {
   app: {
     agents: (options?: object) => Promise<{
       data?: Array<{ name: string; description?: string; mode: string; hidden?: boolean }>;

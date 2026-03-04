@@ -12,7 +12,7 @@
 import { isRemoteSession, getServerPort } from "./remote";
 import { type DiffType, type GitContext, runGitDiff } from "./git";
 import { getRepoInfo } from "./repo";
-import { handleImage, handleUpload, handleAgents, handleServerReady } from "./shared-handlers";
+import { handleImage, handleUpload, handleAgents, handleServerReady, type OpencodeClient } from "./shared-handlers";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -44,11 +44,7 @@ export interface ReviewServerOptions {
   /** Called when server starts with the URL, remote status, and port */
   onReady?: (url: string, isRemote: boolean, port: number) => void;
   /** OpenCode client for querying available agents (OpenCode only) */
-  opencodeClient?: {
-    app: {
-      agents: (options?: object) => Promise<{ data?: Array<{ name: string; description?: string; mode: string; hidden?: boolean }> }>;
-    };
-  };
+  opencodeClient?: OpencodeClient;
 }
 
 export interface ReviewServerResult {

@@ -33,7 +33,7 @@ import {
 } from "./storage";
 import { getRepoInfo } from "./repo";
 import { detectProjectName } from "./project";
-import { handleImage, handleUpload, handleAgents, handleServerReady } from "./shared-handlers";
+import { handleImage, handleUpload, handleAgents, handleServerReady, type OpencodeClient } from "./shared-handlers";
 import { handleDoc, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc } from "./reference-handlers";
 
 // Re-export utilities
@@ -64,11 +64,7 @@ export interface ServerOptions {
   /** Called when server starts with the URL, remote status, and port */
   onReady?: (url: string, isRemote: boolean, port: number) => void;
   /** OpenCode client for querying available agents (OpenCode only) */
-  opencodeClient?: {
-    app: {
-      agents: (options?: object) => Promise<{ data?: Array<{ name: string; description?: string; mode: string; hidden?: boolean }> }>;
-    };
-  };
+  opencodeClient?: OpencodeClient;
 }
 
 export interface ServerResult {
