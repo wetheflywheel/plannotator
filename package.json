@@ -13,7 +13,10 @@
   "bugs": {
     "url": "https://github.com/backnotprop/plannotator/issues"
   },
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev:hook": "bun run --cwd apps/hook dev",
     "dev:portal": "bun run --cwd apps/portal dev",
@@ -26,6 +29,10 @@
     "build:review": "bun run --cwd apps/review build",
     "build:pi": "bun run build:review && bun run build:hook && bun run --cwd apps/pi-extension build",
     "build": "bun run build:hook && bun run build:opencode",
+    "lint": "biome lint .",
+    "format": "biome format .",
+    "format:fix": "biome format --write .",
+    "check": "biome check .",
     "test": "bun test"
   },
   "dependencies": {
@@ -33,6 +40,7 @@
     "diff": "^8.0.3"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.5",
     "happy-dom": "^20.5.0"
   }
 }
