@@ -8,8 +8,7 @@ import { ConfirmDialog } from '@plannotator/ui/components/ConfirmDialog';
 import { Annotation, Block, EditorMode, type InputMethod, type ImageAttachment } from '@plannotator/ui/types';
 import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { ModeToggle } from '@plannotator/ui/components/ModeToggle';
-import { ModeSwitcher } from '@plannotator/ui/components/ModeSwitcher';
-import { InputMethodToggle } from '@plannotator/ui/components/InputMethodToggle';
+import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
 import { Settings } from '@plannotator/ui/components/Settings';
@@ -1344,11 +1343,16 @@ const App: React.FC = () => {
               showCancel
             />
             <div className="min-h-full flex flex-col items-center px-4 py-3 md:px-10 md:py-8 xl:px-16">
-              {/* Mode Switcher + Input Method Toggle (hidden during plan diff) */}
+              {/* Annotation Toolstrip (hidden during plan diff) */}
               {!isPlanDiffActive && (
-                <div className="w-full max-w-[832px] 2xl:max-w-5xl mb-3 md:mb-4 flex items-center justify-start gap-2">
-                  <InputMethodToggle method={inputMethod} onChange={handleInputMethodChange} />
-                  <ModeSwitcher mode={editorMode} onChange={handleEditorModeChange} taterMode={taterMode} />
+                <div className="w-full max-w-[832px] 2xl:max-w-5xl mb-3 md:mb-4 flex items-center justify-start">
+                  <AnnotationToolstrip
+                    inputMethod={inputMethod}
+                    onInputMethodChange={handleInputMethodChange}
+                    mode={editorMode}
+                    onModeChange={handleEditorModeChange}
+                    taterMode={taterMode}
+                  />
                 </div>
               )}
 
