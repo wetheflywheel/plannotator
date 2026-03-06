@@ -31,8 +31,29 @@
       {
         "command": "plannotator-webview.openUrl",
         "title": "Plannotator: Open URL in Editor"
+      },
+      {
+        "command": "plannotator-webview.addEditorAnnotation",
+        "title": "Plannotator: Add Annotation"
       }
     ],
+    "keybindings": [
+      {
+        "command": "plannotator-webview.addEditorAnnotation",
+        "key": "ctrl+shift+.",
+        "mac": "cmd+shift+.",
+        "when": "editorHasSelection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "plannotator-webview.addEditorAnnotation",
+          "when": "editorHasSelection",
+          "group": "plannotator"
+        }
+      ]
+    },
     "configuration": {
       "title": "Plannotator",
       "properties": {

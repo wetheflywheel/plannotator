@@ -3,6 +3,7 @@ import * as path from "path";
 import { createIpcServer } from "./ipc-server";
 import { createCookieProxy } from "./cookie-proxy";
 import { PanelManager } from "./panel-manager";
+import { setActiveProxyPort, registerEditorAnnotationCommand } from "./editor-annotations";
 
 const COOKIE_KEY = "plannotator-cookies";
 
@@ -33,12 +34,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
 
     const panel = await panelManager.open(proxy.rewriteUrl(url));
+    setActiveProxyPort(proxy.port);
 
     // Auto-close this specific panel when plannotator signals completion
     proxy.events.on("close", () => panel.dispose());
 
-    // Clean up proxy server when the panel is closed
-    panel.onDidDispose(() => proxy.server.close());
+    // Clean up proxy server and editor annotations state when the panel is closed
+    panel.onDidDispose(() => {
+      proxy.server.close();
+      setActiveProxyPort(null);
+    });
 
     vscode.window.showInformationMessage("Plannotator panel opened");
   };
@@ -90,6 +95,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
   context.subscriptions.push(openCommand);
+
+  // Register editor annotation command
+  registerEditorAnnotationCommand(context, log);
 }
 
 export function deactivate(): void {}
