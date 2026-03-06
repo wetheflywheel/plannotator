@@ -196,3 +196,23 @@ Write-Host "  /plugin marketplace add backnotprop/plannotator"
 Write-Host "  /plugin install plannotator@plannotator"
 Write-Host ""
 Write-Host "The /plannotator-review and /plannotator-annotate commands are ready to use after you restart Claude Code!"
+
+# Warn if plannotator is configured in both settings.json hooks AND the plugin (causes double execution)
+# Only warn when the plugin is installed — manual-only users won't have overlap
+$claudeSettings = if ($env:CLAUDE_CONFIG_DIR) { "$env:CLAUDE_CONFIG_DIR\settings.json" } else { "$env:USERPROFILE\.claude\settings.json" }
+if ((Test-Path $pluginHooks) -and (Test-Path $claudeSettings)) {
+    $settingsContent = Get-Content -Path $claudeSettings -Raw -ErrorAction SilentlyContinue
+    if ($settingsContent -match '"command".*plannotator') {
+        Write-Host ""
+        Write-Host "⚠️ ⚠️ ⚠️  WARNING: DUPLICATE HOOK DETECTED  ⚠️ ⚠️ ⚠️"
+        Write-Host ""
+        Write-Host "  plannotator was found in your settings.json hooks:"
+        Write-Host "  $claudeSettings"
+        Write-Host ""
+        Write-Host "  This will cause plannotator to run TWICE on each plan review."
+        Write-Host "  Remove the plannotator hook from settings.json and rely on the"
+        Write-Host "  plugin instead (installed automatically via marketplace)."
+        Write-Host ""
+        Write-Host "⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️ ⚠️"
+    }
+}
