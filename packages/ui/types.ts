@@ -96,3 +96,5 @@ export interface VaultNode {
   type: "file" | "folder";
   children?: VaultNode[];
 }
+
+export type { EditorAnnotation } from '@plannotator/shared/types';
