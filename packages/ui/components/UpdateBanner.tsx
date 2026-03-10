@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useUpdateCheck } from '../hooks/useUpdateCheck';
 
-const INSTALL_COMMAND = 'curl -fsSL https://plannotator.ai/install.sh | bash';
+const DEFAULT_INSTALL_COMMAND = 'curl -fsSL https://plannotator.ai/install.sh | bash';
+const PI_INSTALL_COMMAND = 'pi install npm:@plannotator/pi-extension';
 
 interface UpdateBannerProps {
   origin?: 'claude-code' | 'opencode' | 'pi' | null;
@@ -16,13 +17,15 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ origin }) => {
   const urlParams = new URLSearchParams(window.location.search);
   const previewOrigin = urlParams.get('preview-origin');
   const effectiveOrigin = previewOrigin || origin;
+  const isPi = effectiveOrigin === 'pi';
   const isOpenCode = effectiveOrigin === 'opencode';
+  const installCommand = isPi ? PI_INSTALL_COMMAND : DEFAULT_INSTALL_COMMAND;
 
   if (!updateInfo?.updateAvailable || dismissed) return null;
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(INSTALL_COMMAND);
+      await navigator.clipboard.writeText(installCommand);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {
@@ -76,10 +79,15 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ origin }) => {
               You have {updateInfo.currentVersion}
             </p>
 
-            {/* OpenCode extra instructions */}
+            {/* Agent-specific extra instructions */}
             {isOpenCode && (
               <p className="text-xs text-muted-foreground mt-3">
                 Run the install script, then restart OpenCode.
+              </p>
+            )}
+            {isPi && (
+              <p className="text-xs text-muted-foreground mt-3">
+                Run the install command, then restart Pi.
               </p>
             )}
 
