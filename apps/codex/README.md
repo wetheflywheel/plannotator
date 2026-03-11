@@ -1,6 +1,14 @@
 # Plannotator for Codex
 
-Code review and markdown annotation are supported today. Plan mode is not yet supported — it requires hooks to intercept the agent's plan submission, which Codex does not currently expose.
+## Capabilities
+
+| Feature | How to use |
+|---------|------------|
+| **Code Review** | `!plannotator review` — Visual diff annotation UI |
+| **Markdown Annotation** | `!plannotator annotate path/to/file.md` — Annotate any markdown file |
+| **QA Checklist** | Skill: `checklist` — Generate and verify QA checklists interactively |
+
+Plan mode is not yet supported — it requires hooks to intercept the agent's plan submission, which Codex does not currently expose.
 
 ## Install
 
@@ -16,25 +24,27 @@ curl -fsSL https://plannotator.ai/install.sh | bash
 irm https://plannotator.ai/install.ps1 | iex
 ```
 
+This installs the `plannotator` CLI and places skills in `~/.agents/skills/` where Codex discovers them on startup. To install skills only: `npx skills add backnotprop/plannotator`.
+
 ## Usage
 
 ### Code Review
-
-Run `!plannotator review` to open the code review UI for your current changes:
 
 ```
 !plannotator review
 ```
 
-This captures your git diff, opens a browser with the review UI, and waits for your feedback. When you submit annotations, the feedback is printed to stdout.
+Captures your git diff, opens a browser with the review UI, and waits for your feedback. Annotations are sent back to the agent as structured feedback.
 
 ### Annotate Markdown
-
-Run `!plannotator annotate` to annotate any markdown file:
 
 ```
 !plannotator annotate path/to/file.md
 ```
+
+### QA Checklist
+
+The `checklist` skill is invoked by the agent when you ask it to verify changes, create acceptance criteria, or run QA checks. It generates a structured checklist and opens an interactive UI for pass/fail/skip verification.
 
 ## Environment Variables
 
@@ -43,16 +53,6 @@ Run `!plannotator annotate` to annotate any markdown file:
 | `PLANNOTATOR_REMOTE` | Set to `1` for remote mode (devcontainer, SSH). Uses fixed port and skips browser open. |
 | `PLANNOTATOR_PORT` | Fixed port to use. Default: random locally, `19432` for remote sessions. |
 | `PLANNOTATOR_BROWSER` | Custom browser to open. macOS: app name or path. Linux/Windows: executable path. |
-
-## Skills
-
-Skills are installed automatically by the install script above. They are placed in `~/.agents/skills/` and discovered by Codex on startup.
-
-Alternatively, install skills only via `npx skills add backnotprop/plannotator`.
-
-| Skill | Description |
-|-------|-------------|
-| `checklist` | Generate a QA checklist for manual verification of code changes |
 
 ## Links
 

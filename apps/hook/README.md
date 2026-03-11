@@ -1,6 +1,13 @@
 # Plannotator Claude Code Plugin
 
-This directory contains the Claude Code plugin configuration for Plannotator.
+## Capabilities
+
+| Feature | How to use |
+|---------|------------|
+| **Plan Review** | Automatic — intercepts `ExitPlanMode` via hooks |
+| **Code Review** | `/plannotator-review` — Visual diff annotation UI |
+| **Markdown Annotation** | `/plannotator-annotate path/to/file.md` — Annotate any markdown file |
+| **QA Checklist** | `/plannotator-checklist` or skill: `checklist` — Generate and verify QA checklists interactively |
 
 ## Prerequisites
 
@@ -23,7 +30,7 @@ curl -fsSL https://plannotator.ai/install.cmd -o install.cmd && install.cmd && d
 
 ---
 
-[Plugin Installation](#plugin-installation) · [Manual Installation (Hooks)](#manual-installation-hooks) · [Obsidian Integration](#obsidian-integration)  
+[Plugin Installation](#plugin-installation) · [Manual Installation (Hooks)](#manual-installation-hooks) · [Obsidian Integration](#obsidian-integration)
 
 ---
 
@@ -36,7 +43,7 @@ In Claude Code:
 /plugin install plannotator@plannotator
 ```
 
-**Important:** Restart Claude Code after installing the plugin for the hooks to take effect.
+**Important:** Restart Claude Code after installing the plugin for the hooks to take effect. Skills are included with the plugin install.
 
 ## Manual Installation (Hooks)
 
@@ -60,14 +67,6 @@ If you prefer not to use the plugin system, add this to your `~/.claude/settings
   }
 }
 ```
-
-## Skills
-
-Skills are included with the plugin install.
-
-| Skill | Description |
-|-------|-------------|
-| `checklist` | Generate a QA checklist for manual verification of code changes |
 
 ## How It Works
 
