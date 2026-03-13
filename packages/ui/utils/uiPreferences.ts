@@ -3,6 +3,7 @@ import { storage } from './storage';
 const STORAGE_KEY_TOC = 'plannotator-toc-enabled';
 const STORAGE_KEY_STICKY_ACTIONS = 'plannotator-sticky-actions-enabled';
 const STORAGE_KEY_PLAN_WIDTH = 'plannotator-plan-width';
+const STORAGE_KEY_CHECKLIST_WIDTH = 'plannotator-checklist-width';
 
 export type PlanWidth = 'compact' | 'default' | 'wide';
 
@@ -31,4 +32,14 @@ export function saveUIPreferences(prefs: UIPreferences): void {
   storage.setItem(STORAGE_KEY_TOC, String(prefs.tocEnabled));
   storage.setItem(STORAGE_KEY_STICKY_ACTIONS, String(prefs.stickyActionsEnabled));
   storage.setItem(STORAGE_KEY_PLAN_WIDTH, prefs.planWidth);
+}
+
+// Checklist has its own width setting (same options, separate cookie)
+export function getChecklistWidth(): PlanWidth {
+  const w = storage.getItem(STORAGE_KEY_CHECKLIST_WIDTH);
+  return (w === 'compact' || w === 'default' || w === 'wide') ? w : 'compact';
+}
+
+export function saveChecklistWidth(width: PlanWidth): void {
+  storage.setItem(STORAGE_KEY_CHECKLIST_WIDTH, width);
 }

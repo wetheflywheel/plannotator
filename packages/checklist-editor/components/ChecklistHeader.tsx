@@ -1,6 +1,7 @@
 import React from 'react';
 import { ModeToggle } from '@plannotator/ui/components/ModeToggle';
 import { Settings } from '@plannotator/ui/components/Settings';
+import type { PlanWidth } from '@plannotator/ui/utils/uiPreferences';
 import type { StatusCounts, SubmitState } from '../hooks/useChecklistProgress';
 import type { ChecklistPR } from '@plannotator/shared/checklist-types';
 
@@ -130,6 +131,8 @@ interface ChecklistHeaderProps {
   onSubmit: () => void;
   isPanelOpen: boolean;
   onTogglePanel: () => void;
+  checklistWidth: PlanWidth;
+  onChecklistWidthChange: (width: PlanWidth) => void;
 }
 
 export const ChecklistHeader: React.FC<ChecklistHeaderProps> = ({
@@ -142,6 +145,8 @@ export const ChecklistHeader: React.FC<ChecklistHeaderProps> = ({
   onSubmit,
   isPanelOpen,
   onTogglePanel,
+  checklistWidth,
+  onChecklistWidthChange,
 }) => (
   <header className="h-12 flex items-center justify-between px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50 flex-shrink-0">
     {/* Left side */}
@@ -221,7 +226,9 @@ export const ChecklistHeader: React.FC<ChecklistHeaderProps> = ({
         onTaterModeChange={() => {}}
         onIdentityChange={() => {}}
         origin={origin}
-        mode="review"
+        mode="checklist"
+        checklistWidth={checklistWidth}
+        onChecklistWidthChange={onChecklistWidthChange}
       />
       {/* Panel toggle */}
       <button

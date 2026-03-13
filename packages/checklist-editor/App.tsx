@@ -17,6 +17,8 @@ import { useChecklistProgress } from './hooks/useChecklistProgress';
 import { useChecklistDraft } from './hooks/useChecklistDraft';
 import { useChecklistCoverage } from './hooks/useChecklistCoverage';
 import { exportChecklistResults } from './utils/exportChecklist';
+import { getChecklistWidth, saveChecklistWidth, PLAN_WIDTH_OPTIONS } from '@plannotator/ui/utils/uiPreferences';
+import type { PlanWidth } from '@plannotator/ui/utils/uiPreferences';
 import type { Checklist, ChecklistItem, ChecklistItemStatus, ChecklistItemResult } from './hooks/useChecklistState';
 import type { ChecklistPR, ChecklistViewMode } from '@plannotator/shared/checklist-types';
 import type { ChecklistAutomations } from './components/ChecklistAnnotationPanel';
@@ -268,6 +270,7 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
   const [automations, setAutomations] = useState<ChecklistAutomations>({ postToPR: false, approveIfAllPass: false });
   const [viewMode, setViewMode] = useState<ChecklistViewMode>('checklist');
   const [balanceOpen, setBalanceOpen] = useState(false);
+  const [checklistWidth, setChecklistWidth] = useState<PlanWidth>(getChecklistWidth);
   const documentRef = useRef<HTMLDivElement>(null);
   const globalCommentButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -313,6 +316,16 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // One-time on mount
+
+  const handleChecklistWidthChange = useCallback((width: PlanWidth) => {
+    setChecklistWidth(width);
+    saveChecklistWidth(width);
+  }, []);
+
+  const checklistMaxWidth = useMemo(() => {
+    const widths: Record<PlanWidth, number> = { compact: 832, default: 1040, wide: 1280 };
+    return widths[checklistWidth] ?? 832;
+  }, [checklistWidth]);
 
   // Set status and auto-collapse the item
   const handleSetStatus = useCallback((id: string, status: ChecklistItemStatus) => {
@@ -561,6 +574,8 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
         onSubmit={handleSubmit}
         isPanelOpen={isPanelOpen}
         onTogglePanel={() => setIsPanelOpen(p => !p)}
+        checklistWidth={checklistWidth}
+        onChecklistWidthChange={handleChecklistWidthChange}
       />
 
       {/* Draft restore banner */}
@@ -579,7 +594,7 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
       <div className={`flex-1 flex overflow-hidden ${panelResize.isDragging ? 'select-none' : ''}`}>
         {/* Checklist document */}
         <div ref={documentRef} className="flex-1 min-w-0 overflow-y-auto bg-grid">
-          <div className="checklist-document">
+          <div className="checklist-document" style={{ maxWidth: checklistMaxWidth }}>
             {/* Title */}
             <h1 className="text-xl font-bold text-foreground mb-1 tracking-tight">{checklist.title}</h1>
 

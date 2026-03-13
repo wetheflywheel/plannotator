@@ -57,15 +57,18 @@ interface SettingsProps {
   onTaterModeChange: (enabled: boolean) => void;
   onIdentityChange?: (oldIdentity: string, newIdentity: string) => void;
   origin?: 'claude-code' | 'opencode' | 'pi' | null;
-  /** Mode determines which settings are shown. 'plan' shows all, 'review' shows only identity + agent switching */
-  mode?: 'plan' | 'review';
+  /** Mode determines which settings are shown. 'plan' shows all, 'review' shows only identity + agent switching, 'checklist' shows display width */
+  mode?: 'plan' | 'review' | 'checklist';
   onUIPreferencesChange?: (prefs: UIPreferences) => void;
+  /** Checklist display width (separate from plan width) */
+  checklistWidth?: PlanWidth;
+  onChecklistWidthChange?: (width: PlanWidth) => void;
   /** Externally controlled open state (for mobile menu integration) */
   externalOpen?: boolean;
   onExternalClose?: () => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange, onIdentityChange, origin, mode = 'plan', onUIPreferencesChange, externalOpen, onExternalClose }) => {
+export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange, onIdentityChange, origin, mode = 'plan', onUIPreferencesChange, checklistWidth, onChecklistWidthChange, externalOpen, onExternalClose }) => {
   const [showDialog, setShowDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [identity, setIdentity] = useState('');
@@ -94,8 +97,10 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
 
   const mainTabs = useMemo(() => {
     const t: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }];
-    if (mode === 'plan') {
+    if (mode === 'plan' || mode === 'checklist') {
       t.push({ id: 'display', label: 'Display' });
+    }
+    if (mode === 'plan') {
       t.push({ id: 'saving', label: 'Saving' });
       t.push({ id: 'labels', label: 'Labels' });
     }
@@ -482,6 +487,38 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                 {/* === DISPLAY TAB === */}
                 {activeTab === 'display' && (
                   <>
+                    {/* Checklist Width (checklist mode only) */}
+                    {mode === 'checklist' && checklistWidth && onChecklistWidthChange && (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-sm font-medium">Checklist Width</div>
+                          <div className="text-xs text-muted-foreground">
+                            Maximum width of the checklist document
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+                          {PLAN_WIDTH_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.id}
+                              onClick={() => onChecklistWidthChange(opt.id)}
+                              className={`flex-1 px-3 py-1.5 text-xs rounded-md transition-colors ${
+                                checklistWidth === opt.id
+                                  ? 'bg-background text-foreground shadow-sm font-medium'
+                                  : 'text-muted-foreground hover:text-foreground'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground/70 leading-snug">
+                          {(PLAN_WIDTH_OPTIONS.find(o => o.id === checklistWidth) ?? PLAN_WIDTH_OPTIONS[0]).px}px — {(PLAN_WIDTH_OPTIONS.find(o => o.id === checklistWidth) ?? PLAN_WIDTH_OPTIONS[0]).hint}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Plan-only display settings */}
+                    {mode === 'plan' && (<>
                     {/* Auto-open Sidebar */}
                     <div className="flex items-center justify-between">
                       <div>
@@ -657,6 +694,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                         />
                       </button>
                     </div>
+                    </>)}
                   </>
                 )}
 
