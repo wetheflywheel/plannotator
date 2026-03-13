@@ -85,7 +85,11 @@ if ($userPath -notlike "*$installDir*") {
 # Validate plugin hooks.json if plugin is already installed
 $pluginHooks = if ($env:CLAUDE_CONFIG_DIR) { "$env:CLAUDE_CONFIG_DIR\plugins\marketplaces\plannotator\apps\hook\hooks\hooks.json" } else { "$env:USERPROFILE\.claude\plugins\marketplaces\plannotator\apps\hook\hooks\hooks.json" }
 if (Test-Path $pluginHooks) {
-    @'
+    # Use full path on Windows so the hook works without PATH being set in the shell
+    $exePath = "$installDir\plannotator.exe"
+    # Convert backslashes to forward slashes and escape for JSON
+    $exePathJson = $exePath.Replace('\', '/')
+    @"
 {
   "hooks": {
     "PermissionRequest": [
@@ -94,7 +98,7 @@ if (Test-Path $pluginHooks) {
         "hooks": [
           {
             "type": "command",
-            "command": "plannotator",
+            "command": "$exePathJson",
             "timeout": 345600
           }
         ]
@@ -102,13 +106,16 @@ if (Test-Path $pluginHooks) {
     ]
   }
 }
-'@ | Set-Content -Path $pluginHooks
+"@ | Set-Content -Path $pluginHooks
     Write-Host "Updated plugin hooks at $pluginHooks"
 }
 
 # Clear OpenCode plugin cache
 Remove-Item -Recurse -Force "$env:USERPROFILE\.cache\opencode\node_modules\@plannotator" -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force "$env:USERPROFILE\.bun\install\cache\@plannotator" -ErrorAction SilentlyContinue
+
+# Clear Pi jiti cache to force fresh download on next run
+Remove-Item -Recurse -Force "$env:TEMP\jiti" -ErrorAction SilentlyContinue
 
 # Update Pi extension if pi is installed
 if (Get-Command pi -ErrorAction SilentlyContinue) {
@@ -193,6 +200,14 @@ Write-Host ""
 Write-Host '  "plugin": ["@plannotator/opencode@latest"]'
 Write-Host ""
 Write-Host "Then restart OpenCode. The /plannotator-review and /plannotator-annotate commands are ready!"
+Write-Host ""
+Write-Host "=========================================="
+Write-Host "  PI USERS"
+Write-Host "=========================================="
+Write-Host ""
+Write-Host "Install or update the extension:"
+Write-Host ""
+Write-Host "  pi install npm:@plannotator/pi-extension"
 Write-Host ""
 Write-Host "=========================================="
 Write-Host "  CLAUDE CODE USERS: YOU ARE ALL SET!"

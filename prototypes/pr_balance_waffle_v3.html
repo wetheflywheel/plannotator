@@ -1,0 +1,308 @@
+
+<style>
+  .bb-tip { position: fixed; pointer-events: none; z-index: 100; background: var(--color-background-primary); border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 6px 10px; font-size: 12px; color: var(--color-text-primary); display: none; line-height: 1.5; max-width: 220px; }
+</style>
+
+<div style="padding:0.5rem 0">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <button id="toggle-btn" onclick="toggleView()">Collapse to bins</button>
+    <span id="mode-label" style="font-size:12px;color:var(--color-text-tertiary)">Showing individual files</span>
+  </div>
+  <svg id="bb" width="100%" viewBox="0 0 680 500"></svg>
+  <div class="bb-tip" id="bb-tip"></div>
+</div>
+
+<script>
+const dk = matchMedia('(prefers-color-scheme:dark)').matches;
+const NS = 'http://www.w3.org/2000/svg';
+const svg = document.getElementById('bb');
+const tip = document.getElementById('bb-tip');
+
+const modC = dk ? '#538FCC' : '#6BA3D6';
+const modCh = dk ? '#6BA3D6' : '#85B7EB';
+const newC = dk ? '#1A8A66' : '#4DB893';
+const newCh = dk ? '#2AAE80' : '#5DCAA5';
+const comColor = dk ? '#EF9F27' : '#D85A30';
+const txt2 = dk ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
+const divC = dk ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+const modTxt = dk ? '#B5D4F4' : '#042C53';
+const newTxt = dk ? '#9FE1CB' : '#04342C';
+const modTxtS = dk ? 'rgba(181,212,244,0.6)' : 'rgba(4,44,83,0.55)';
+const newTxtS = dk ? 'rgba(159,225,203,0.6)' : 'rgba(4,52,44,0.55)';
+
+const modified = [
+  {file:'server.ts', pkg:'pi-extension', lines:634},
+  {file:'misc modified (17)', pkg:'various', lines:402},
+  {file:'review.ts (-183)', pkg:'server', lines:183},
+  {file:'review.ts (+145)', pkg:'server', lines:145},
+  {file:'index.css (-122)', pkg:'review-editor', lines:122},
+  {file:'Toolstrip (-113)', pkg:'ui', lines:113},
+  {file:'annotate.ts (-100)', pkg:'server', lines:100},
+  {file:'index.ts (-48)', pkg:'server', lines:48},
+];
+const newFiles = [
+  {file:'Config & entry', pkg:'checklist-editor', lines:782},
+  {file:'App.tsx', pkg:'checklist-editor', lines:677},
+  {file:'Other components', pkg:'checklist-editor', lines:580},
+  {file:'checklist-server.ts', pkg:'server', lines:450},
+  {file:'Hooks & utils', pkg:'checklist-editor', lines:420},
+  {file:'index.css', pkg:'checklist-editor', lines:282},
+  {file:'ChecklistHeader', pkg:'checklist-editor', lines:242},
+  {file:'ChecklistItem', pkg:'checklist-editor', lines:236},
+  {file:'AnnotationPanel', pkg:'checklist-editor', lines:234},
+  {file:'SKILL.md', pkg:'.agents', lines:163},
+  {file:'serve.ts', pkg:'server', lines:163},
+  {file:'ToolstripButton', pkg:'ui', lines:113},
+  {file:'theme.css', pkg:'ui', lines:95},
+  {file:'checklist-types', pkg:'shared', lines:79},
+  {file:'Vite scaffold', pkg:'apps', lines:60},
+  {file:'time.ts', pkg:'ui', lines:50},
+  {file:'Slash commands', pkg:'apps', lines:45},
+  {file:'READMEs', pkg:'apps', lines:30},
+];
+
+modified.sort((a,b) => b.lines - a.lines);
+newFiles.sort((a,b) => a.lines - b.lines);
+
+const totalMod = modified.reduce((s,f) => s+f.lines, 0);
+const totalNew = newFiles.reduce((s,f) => s+f.lines, 0);
+const totalAll = totalMod + totalNew;
+const allFiles = [...modified, ...newFiles];
+const N = allFiles.length;
+const splitIndex = modified.length;
+
+const MARGIN_L = 30;
+const MARGIN_R = 30;
+const BEAM_Y = 420;
+const BAR_FLOOR = BEAM_Y - 6;
+const MAX_BAR_H = 350;
+const maxLines = Math.max(...allFiles.map(f => f.lines));
+const chartW = 680 - MARGIN_L - MARGIN_R;
+const GAP = 2;
+const BAR_W = Math.floor((chartW - GAP*(N-1)) / N);
+const totalBarsW = BAR_W * N + GAP*(N-1);
+const offsetX = MARGIN_L + (chartW - totalBarsW) / 2;
+const divXPos = offsetX + splitIndex * (BAR_W + GAP) - GAP/2;
+const modMidX = offsetX + (splitIndex*(BAR_W+GAP) - GAP) / 2;
+const newMidX = offsetX + splitIndex*(BAR_W+GAP) + ((N-splitIndex)*(BAR_W+GAP) - GAP) / 2;
+
+const el = (tag, attrs) => {
+  const e = document.createElementNS(NS, tag);
+  if (attrs) Object.entries(attrs).forEach(([k,v]) => e.setAttribute(k,v));
+  return e;
+};
+
+function squarify(items, x, y, w, h) {
+  const rects = [];
+  const total = items.reduce((s,i) => s+i.lines, 0);
+  if (!total || !items.length) return rects;
+  let remaining = [...items].sort((a,b) => b.lines - a.lines);
+  let cx=x, cy=y, cw=w, ch=h;
+  while (remaining.length) {
+    const isWide = cw >= ch;
+    const side = isWide ? ch : cw;
+    const areaLeft = remaining.reduce((s,i) => s+i.lines, 0);
+    const scale = (cw*ch) / areaLeft;
+    let row = [remaining[0]];
+    let rowArea = remaining[0].lines * scale;
+    for (let i=1; i<remaining.length; i++) {
+      const newRow = [...row, remaining[i]];
+      const newRowArea = rowArea + remaining[i].lines*scale;
+      const worstNew = newRow.reduce((w2,item) => {
+        const a = item.lines*scale; const rl = newRowArea/side; const is2 = a/rl;
+        return Math.max(w2, Math.max(rl/is2, is2/rl));
+      }, 0);
+      const worstOld = row.reduce((w2,item) => {
+        const a = item.lines*scale; const rl = rowArea/side; const is2 = a/rl;
+        return Math.max(w2, Math.max(rl/is2, is2/rl));
+      }, 0);
+      if (worstNew <= worstOld) { row = newRow; rowArea = newRowArea; }
+      else break;
+    }
+    const rowLen = rowArea / side;
+    let offset = 0;
+    for (const item of row) {
+      const itemArea = item.lines * scale;
+      const itemLen = itemArea / rowLen;
+      if (isWide) rects.push({...item, tx:cx, ty:cy+offset, tw:rowLen, th:itemLen});
+      else rects.push({...item, tx:cx+offset, ty:cy, tw:itemLen, th:rowLen});
+      offset += itemLen;
+    }
+    if (isWide) { cx += rowLen; cw -= rowLen; }
+    else { cy += rowLen; ch -= rowLen; }
+    remaining = remaining.slice(row.length);
+  }
+  return rects;
+}
+
+const BIN_GAP = 24;
+const BIN_TOP = 50;
+const BIN_BOT = BEAM_Y - 16;
+const BIN_H = BIN_BOT - BIN_TOP;
+const LEFT_BIN_X = 30;
+const LEFT_BIN_W = divXPos - BIN_GAP/2 - LEFT_BIN_X;
+const RIGHT_BIN_X = divXPos + BIN_GAP/2;
+const RIGHT_BIN_W = 650 - RIGHT_BIN_X;
+
+const modTreemap = squarify(modified, LEFT_BIN_X, BIN_TOP, LEFT_BIN_W, BIN_H);
+const newTreemap = squarify(newFiles, RIGHT_BIN_X, BIN_TOP, RIGHT_BIN_W, BIN_H);
+
+const treemapMap = {};
+modTreemap.forEach(t => { treemapMap[t.file+'_mod'] = t; });
+newTreemap.forEach(t => { treemapMap[t.file+'_new'] = t; });
+
+// Static divider
+svg.appendChild(el('line', {x1:divXPos, y1:20, x2:divXPos, y2:BEAM_Y, stroke:divC, 'stroke-width':'1', 'stroke-dasharray':'4 4'}));
+const beamLine = el('line', {x1:MARGIN_L-10, y1:BEAM_Y, x2:680-MARGIN_R+10, y2:BEAM_Y, stroke:divC, 'stroke-width':'1.5'});
+beamLine.style.transition = 'opacity 0.3s ease';
+svg.appendChild(beamLine);
+
+// Header labels with file counts
+const mlabel = el('text', {x:modMidX, y:18, 'text-anchor':'middle', fill:txt2, 'font-size':'12', 'font-family':'var(--font-sans)', 'font-weight':'500'});
+mlabel.textContent = 'Modified · ' + modified.length + ' files · ' + totalMod.toLocaleString() + ' lines';
+svg.appendChild(mlabel);
+const nlabel = el('text', {x:newMidX, y:18, 'text-anchor':'middle', fill:txt2, 'font-size':'12', 'font-family':'var(--font-sans)', 'font-weight':'500'});
+nlabel.textContent = 'New · ' + newFiles.length + ' files · ' + totalNew.toLocaleString() + ' lines';
+svg.appendChild(nlabel);
+
+// Y ticks
+const yTicks = [];
+[200,400,600,800].forEach(v => {
+  const y = BAR_FLOOR - (v/maxLines)*MAX_BAR_H;
+  if (y < 26) return;
+  const ln = el('line', {x1:MARGIN_L-6, y1:y, x2:MARGIN_L, y2:y, stroke:txt2, 'stroke-width':'0.5'});
+  ln.style.transition = 'opacity 0.4s ease';
+  svg.appendChild(ln);
+  const t = el('text', {x:MARGIN_L-9, y:y, 'text-anchor':'end', 'dominant-baseline':'central', fill:txt2, 'font-size':'10', 'font-family':'var(--font-sans)'});
+  t.style.transition = 'opacity 0.4s ease';
+  t.textContent = v;
+  svg.appendChild(t);
+  yTicks.push({ln, t});
+});
+
+// Center of mass
+const masses = allFiles.map((f,i) => ({x:offsetX+i*(BAR_W+GAP)+BAR_W/2, m:f.lines}));
+const totalM = masses.reduce((s,p) => s+p.m, 0);
+const comXBars = masses.reduce((s,p) => s+p.x*p.m, 0) / totalM;
+
+const comG = el('g');
+comG.style.transition = 'opacity 0.4s ease';
+comG.appendChild(el('polygon', {points:`${comXBars},${BEAM_Y+4} ${comXBars-10},${BEAM_Y+22} ${comXBars+10},${BEAM_Y+22}`, fill:comColor}));
+comG.appendChild(el('rect', {x:comXBars-16, y:BEAM_Y+22, width:32, height:4, rx:'2', fill:comColor, opacity:'0.5'}));
+comG.appendChild(el('line', {x1:comXBars, y1:26, x2:comXBars, y2:BEAM_Y, stroke:comColor, 'stroke-width':'1.5', opacity:'0.2'}));
+const comLabel = el('text', {x:comXBars, y:BEAM_Y+44, 'text-anchor':'middle', fill:comColor, 'font-size':'13', 'font-family':'var(--font-sans)', 'font-weight':'500'});
+comLabel.textContent = 'Center of mass';
+comG.appendChild(comLabel);
+const pctNew = Math.round(totalNew/totalAll*100);
+const comSub = el('text', {x:comXBars, y:BEAM_Y+60, 'text-anchor':'middle', fill:comColor, 'font-size':'12', 'font-family':'var(--font-sans)'});
+comSub.textContent = pctNew + '% of weight is new code';
+comG.appendChild(comSub);
+svg.appendChild(comG);
+
+// Bin outlines
+const modBinRect = el('rect', {x:LEFT_BIN_X-1, y:BIN_TOP-1, width:LEFT_BIN_W+2, height:BIN_H+2, rx:'6', fill:'none', stroke:modC, 'stroke-width':'0.5', opacity:'0', 'stroke-dasharray':'4 3'});
+modBinRect.style.transition = 'opacity 0.4s ease 0.15s';
+svg.appendChild(modBinRect);
+const newBinRect = el('rect', {x:RIGHT_BIN_X-1, y:BIN_TOP-1, width:RIGHT_BIN_W+2, height:BIN_H+2, rx:'6', fill:'none', stroke:newC, 'stroke-width':'0.5', opacity:'0', 'stroke-dasharray':'4 3'});
+newBinRect.style.transition = 'opacity 0.4s ease 0.15s';
+svg.appendChild(newBinRect);
+
+// Defs
+const defs = el('defs');
+svg.appendChild(defs);
+
+// Bars + treemap clip groups
+const barEls = [];
+allFiles.forEach((f,i) => {
+  const isMod = i < splitIndex;
+  const x = offsetX + i*(BAR_W+GAP);
+  const h = (f.lines/maxLines)*MAX_BAR_H;
+  const y = BAR_FLOOR - h;
+  const color = isMod ? modC : newC;
+  const colorH = isMod ? modCh : newCh;
+  const key = f.file + (isMod ? '_mod' : '_new');
+  const tm = treemapMap[key];
+
+  const rect = el('rect', {x:x, y:y, width:BAR_W, height:h, rx:'2', fill:color, opacity:'0.75'});
+  rect.style.transition = 'all 0.55s cubic-bezier(0.4, 0, 0.2, 1)';
+  rect.style.cursor = 'default';
+  svg.appendChild(rect);
+
+  let clipG = null;
+  if (tm) {
+    const pad = 1.5;
+    const clipId = 'clip-' + i;
+    const cp = el('clipPath', {id:clipId});
+    cp.appendChild(el('rect', {x:tm.tx+pad, y:tm.ty+pad, width:tm.tw-pad*2, height:tm.th-pad*2, rx:'3'}));
+    defs.appendChild(cp);
+
+    clipG = el('g', {'clip-path':'url(#'+clipId+')'});
+    clipG.style.opacity = '0';
+    clipG.style.transition = 'opacity 0.3s ease 0.25s';
+    clipG.style.pointerEvents = 'none';
+
+    const lbl = el('text', {x:tm.tx+7, y:tm.ty+16, fill:isMod?modTxt:newTxt, 'font-size':'11', 'font-family':'var(--font-sans)', 'font-weight':'500'});
+    lbl.textContent = f.file;
+    clipG.appendChild(lbl);
+
+    const lbl2 = el('text', {x:tm.tx+7, y:tm.ty+30, fill:isMod?modTxtS:newTxtS, 'font-size':'10', 'font-family':'var(--font-sans)'});
+    lbl2.textContent = f.lines + ' lines';
+    clipG.appendChild(lbl2);
+
+    svg.appendChild(clipG);
+  }
+
+  rect.addEventListener('mouseenter', e => {
+    rect.setAttribute('fill', colorH);
+    rect.setAttribute('opacity', '1');
+    tip.innerHTML = `<strong>${f.file}</strong><br>${f.pkg}<br>${f.lines} lines · ${isMod?'modified':'new'}`;
+    tip.style.display = 'block';
+  });
+  rect.addEventListener('mousemove', e => {
+    tip.style.left = (e.clientX+14)+'px';
+    tip.style.top = (e.clientY-50)+'px';
+  });
+  rect.addEventListener('mouseleave', () => {
+    rect.setAttribute('fill', color);
+    rect.setAttribute('opacity', '0.75');
+    tip.style.display = 'none';
+  });
+
+  barEls.push({rect, clipG, origX:x, origY:y, origW:BAR_W, origH:h, tm});
+});
+
+let collapsed = false;
+
+window.toggleView = function() {
+  collapsed = !collapsed;
+  tip.style.display = 'none';
+  document.getElementById('toggle-btn').textContent = collapsed ? 'Expand to files' : 'Collapse to bins';
+  document.getElementById('mode-label').textContent = collapsed ? 'Showing binned mass' : 'Showing individual files';
+
+  yTicks.forEach(({ln,t}) => { ln.style.opacity = collapsed?'0':'1'; t.style.opacity = collapsed?'0':'1'; });
+  comG.style.opacity = collapsed ? '0' : '1';
+  beamLine.style.opacity = collapsed ? '0' : '1';
+  modBinRect.setAttribute('opacity', collapsed ? '0.3' : '0');
+  newBinRect.setAttribute('opacity', collapsed ? '0.3' : '0');
+
+  barEls.forEach(b => {
+    if (collapsed && b.tm) {
+      const pad = 1.5;
+      b.rect.setAttribute('x', b.tm.tx+pad);
+      b.rect.setAttribute('y', b.tm.ty+pad);
+      b.rect.setAttribute('width', Math.max(b.tm.tw-pad*2, 1));
+      b.rect.setAttribute('height', Math.max(b.tm.th-pad*2, 1));
+      b.rect.setAttribute('rx', '3');
+      if (b.clipG && b.tm.tw > 50 && b.tm.th > 24) b.clipG.style.opacity = '1';
+    } else {
+      b.rect.setAttribute('x', b.origX);
+      b.rect.setAttribute('y', b.origY);
+      b.rect.setAttribute('width', b.origW);
+      b.rect.setAttribute('height', b.origH);
+      b.rect.setAttribute('rx', '2');
+      if (b.clipG) b.clipG.style.opacity = '0';
+    }
+  });
+};
+</script>
+</svg>

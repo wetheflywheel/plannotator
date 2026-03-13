@@ -1,0 +1,254 @@
+
+<style>
+  .ft-wrap { padding: 1rem 0; font-family: var(--font-sans); }
+  .ft-bar-wrap { background: var(--color-background-secondary); border-radius: var(--border-radius-md); height: 28px; margin: 0 0 1.25rem; overflow: hidden; position: relative; }
+  .ft-bar-fill { height: 100%; border-radius: var(--border-radius-md); transition: width 0.4s ease; background: #1D9E75; }
+  .ft-bar-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; color: var(--color-text-primary); }
+  .ft-legend { display: flex; gap: 14px; font-size: 11px; color: var(--color-text-secondary); margin: 0 0 12px; }
+  .ft-ldot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; vertical-align: middle; margin-right: 4px; }
+  .ft-cols { display: flex; gap: 16px; }
+  .ft-tree-col { flex: 1; min-width: 0; }
+  .ft-task-col { width: 240px; flex-shrink: 0; }
+  .ft-node { user-select: none; }
+  .ft-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; cursor: default; border-radius: 4px; }
+  .ft-row:hover { background: var(--color-background-secondary); }
+  .ft-toggle { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--color-text-secondary); cursor: pointer; flex-shrink: 0; transition: transform 0.15s; }
+  .ft-toggle.open { transform: rotate(90deg); }
+  .ft-icon { font-size: 14px; flex-shrink: 0; width: 16px; text-align: center; }
+  .ft-name { font-size: 13px; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ft-name.dir { font-weight: 500; }
+  .ft-waffle { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; align-items: center; }
+  .ft-cell { width: 8px; height: 8px; border-radius: 2px; transition: background 0.35s ease; }
+  .ft-cell.off { background: var(--color-background-tertiary); border: 0.5px solid var(--color-border-tertiary); }
+  .ft-cell.on { background: #1D9E75; }
+  .ft-pct { font-size: 11px; color: var(--color-text-secondary); min-width: 28px; text-align: right; margin-left: 4px; }
+  .ft-children { padding-left: 20px; overflow: hidden; transition: max-height 0.25s ease; }
+  .ft-children.collapsed { max-height: 0 !important; }
+  .ft-task-label { font-size: 13px; font-weight: 500; color: var(--color-text-secondary); margin: 0 0 6px; }
+  .ft-task { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: var(--color-background-primary); cursor: pointer; user-select: none; margin-bottom: 4px; }
+  .ft-task:hover { background: var(--color-background-secondary); }
+  .ft-task.done { border-color: #5DCAA5; }
+  .ft-chk { width: 16px; height: 16px; border-radius: 3px; border: 1.5px solid var(--color-border-secondary); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; }
+  .ft-task.done .ft-chk { background: #1D9E75; border-color: #0F6E56; }
+  .ft-task-name { font-size: 12px; color: var(--color-text-primary); flex: 1; line-height: 1.3; }
+  .ft-task-ct { font-size: 11px; color: var(--color-text-secondary); flex-shrink: 0; }
+  @media (max-width: 600px) { .ft-cols { flex-direction: column; } .ft-task-col { width: 100%; } }
+  @media (prefers-color-scheme: dark) {
+    .ft-cell.off { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1); }
+  }
+</style>
+
+<div class="ft-wrap">
+  <div class="ft-bar-wrap">
+    <div class="ft-bar-fill" id="gbar" style="width:0%"></div>
+    <div class="ft-bar-text" id="gtext">0%</div>
+  </div>
+  <div class="ft-legend">
+    <span><span class="ft-ldot" style="background: var(--color-background-tertiary); border: 0.5px solid var(--color-border-tertiary);"></span>Untested diff</span>
+    <span><span class="ft-ldot" style="background: #1D9E75;"></span>Covered diff</span>
+  </div>
+  <div class="ft-cols">
+    <div class="ft-tree-col" id="tree"></div>
+    <div class="ft-task-col">
+      <p class="ft-task-label">QA tasks</p>
+      <div id="tasklist"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const tree = {
+  name: "src", type: "dir", children: [
+    { name: "checkout", type: "dir", children: [
+      { name: "CartPage.tsx", diffs: 6, id: "cart" },
+      { name: "PaymentForm.tsx", diffs: 8, id: "pay" },
+      { name: "OrderConfirm.tsx", diffs: 5, id: "confirm" },
+      { name: "useDiscount.ts", diffs: 3, id: "disc" }
+    ]},
+    { name: "search", type: "dir", children: [
+      { name: "SearchBar.tsx", diffs: 5, id: "sbar" },
+      { name: "FilterPanel.tsx", diffs: 7, id: "filt" },
+      { name: "ResultsList.tsx", diffs: 4, id: "results" },
+      { name: "useSearch.ts", diffs: 2, id: "usearch" }
+    ]},
+    { name: "auth", type: "dir", children: [
+      { name: "LoginForm.tsx", diffs: 5, id: "login" },
+      { name: "SessionProvider.tsx", diffs: 4, id: "sess" },
+      { name: "useAuth.ts", diffs: 2, id: "uauth" }
+    ]},
+    { name: "profile", type: "dir", children: [
+      { name: "ProfilePage.tsx", diffs: 6, id: "prof" },
+      { name: "AvatarUpload.tsx", diffs: 3, id: "avatar" },
+      { name: "SettingsPanel.tsx", diffs: 5, id: "sett" }
+    ]},
+    { name: "shared", type: "dir", children: [
+      { name: "NavBar.tsx", diffs: 6, id: "nav" },
+      { name: "ErrorBoundary.tsx", diffs: 4, id: "errbnd" },
+      { name: "Toast.tsx", diffs: 3, id: "toast" },
+      { name: "api.ts", diffs: 5, id: "api" },
+      { name: "utils.ts", diffs: 2, id: "utils" }
+    ]}
+  ]
+};
+
+const tasks = [
+  { label: "Complete purchase end-to-end", covers: { cart: 6, pay: 5, confirm: 5, nav: 2, api: 2, toast: 1 } },
+  { label: "Test payment validation errors", covers: { pay: 3, errbnd: 2, api: 1, toast: 1 } },
+  { label: "Apply discount codes", covers: { disc: 3, cart: 0 } },
+  { label: "Search + filter combinations", covers: { sbar: 5, filt: 7, results: 3, usearch: 2, nav: 1 } },
+  { label: "Empty search results state", covers: { results: 1, sbar: 0, errbnd: 1 } },
+  { label: "Login / logout / session expiry", covers: { login: 5, sess: 4, uauth: 2, nav: 2 } },
+  { label: "Edit profile and save", covers: { prof: 6, api: 2, toast: 1 } },
+  { label: "Upload new avatar", covers: { avatar: 3, api: 0 } },
+  { label: "Update settings", covers: { sett: 5, toast: 0 } },
+  { label: "Navigate all main routes", covers: { nav: 1, errbnd: 1, utils: 2 } }
+];
+
+let taskState = tasks.map(() => false);
+
+function getFileCoverage() {
+  let cov = {};
+  tasks.forEach((t, i) => {
+    if (!taskState[i]) return;
+    for (let [fid, c] of Object.entries(t.covers)) cov[fid] = (cov[fid] || 0) + c;
+  });
+  return cov;
+}
+
+function getAllFiles(node) {
+  if (node.type !== "dir") return [node];
+  let out = [];
+  node.children.forEach(c => out.push(...getAllFiles(c)));
+  return out;
+}
+
+const allFiles = getAllFiles(tree);
+const totalDiffs = allFiles.reduce((s, f) => s + f.diffs, 0);
+
+function renderNode(node, container, depth) {
+  const div = document.createElement("div");
+  div.className = "ft-node";
+  const row = document.createElement("div");
+  row.className = "ft-row";
+  row.style.paddingLeft = (depth * 0) + "px";
+
+  const cov = getFileCoverage();
+
+  if (node.type === "dir") {
+    const tog = document.createElement("span");
+    tog.className = "ft-toggle open";
+    tog.innerHTML = "&#9654;";
+    row.appendChild(tog);
+
+    const icon = document.createElement("span");
+    icon.className = "ft-icon";
+    icon.style.color = "#BA7517";
+    icon.innerHTML = "&#128193;";
+    row.appendChild(icon);
+
+    const nm = document.createElement("span");
+    nm.className = "ft-name dir";
+    nm.textContent = node.name + "/";
+    row.appendChild(nm);
+
+    const files = getAllFiles(node);
+    const dirTotal = files.reduce((s, f) => s + f.diffs, 0);
+    const dirCov = files.reduce((s, f) => s + Math.min(cov[f.id] || 0, f.diffs), 0);
+
+    const waffle = document.createElement("span");
+    waffle.className = "ft-waffle";
+    const maxCells = Math.min(dirTotal, 20);
+    const ratio = dirTotal / maxCells;
+    for (let i = 0; i < maxCells; i++) {
+      const cell = document.createElement("span");
+      const threshold = Math.floor(i * ratio);
+      cell.className = "ft-cell " + (threshold < dirCov ? "on" : "off");
+      waffle.appendChild(cell);
+    }
+    row.appendChild(waffle);
+
+    const pct = document.createElement("span");
+    pct.className = "ft-pct";
+    pct.textContent = dirTotal > 0 ? Math.round(dirCov / dirTotal * 100) + "%" : "";
+    row.appendChild(pct);
+
+    div.appendChild(row);
+
+    const childWrap = document.createElement("div");
+    childWrap.className = "ft-children";
+    node.children.forEach(c => renderNode(c, childWrap, depth + 1));
+    div.appendChild(childWrap);
+
+    tog.onclick = (e) => {
+      e.stopPropagation();
+      const open = tog.classList.toggle("open");
+      if (open) { childWrap.classList.remove("collapsed"); childWrap.style.maxHeight = childWrap.scrollHeight + "px"; }
+      else { childWrap.style.maxHeight = childWrap.scrollHeight + "px"; requestAnimationFrame(() => childWrap.classList.add("collapsed")); }
+    };
+    childWrap.style.maxHeight = childWrap.scrollHeight + "px";
+  } else {
+    const spacer = document.createElement("span");
+    spacer.style.width = "16px";
+    spacer.style.flexShrink = "0";
+    row.appendChild(spacer);
+
+    const icon = document.createElement("span");
+    icon.className = "ft-icon";
+    icon.style.color = "#378ADD";
+    icon.innerHTML = "&#128196;";
+    row.appendChild(icon);
+
+    const nm = document.createElement("span");
+    nm.className = "ft-name";
+    nm.textContent = node.name;
+    row.appendChild(nm);
+
+    const fileCov = Math.min(cov[node.id] || 0, node.diffs);
+
+    const waffle = document.createElement("span");
+    waffle.className = "ft-waffle";
+    for (let i = 0; i < node.diffs; i++) {
+      const cell = document.createElement("span");
+      cell.className = "ft-cell " + (i < fileCov ? "on" : "off");
+      waffle.appendChild(cell);
+    }
+    row.appendChild(waffle);
+
+    const pct = document.createElement("span");
+    pct.className = "ft-pct";
+    pct.textContent = node.diffs > 0 ? Math.round(fileCov / node.diffs * 100) + "%" : "";
+    row.appendChild(pct);
+
+    div.appendChild(row);
+  }
+  container.appendChild(div);
+}
+
+function render() {
+  const cov = getFileCoverage();
+  const totalCov = allFiles.reduce((s, f) => s + Math.min(cov[f.id] || 0, f.diffs), 0);
+  const pct = Math.round(totalCov / totalDiffs * 100);
+  document.getElementById("gbar").style.width = pct + "%";
+  document.getElementById("gtext").textContent = totalCov + " / " + totalDiffs + " diffs covered (" + pct + "%)";
+
+  const treeEl = document.getElementById("tree");
+  treeEl.innerHTML = "";
+  renderNode(tree, treeEl, 0);
+}
+
+function renderTasks() {
+  const el = document.getElementById("tasklist");
+  el.innerHTML = "";
+  tasks.forEach((t, i) => {
+    const ct = Object.values(t.covers).reduce((s, v) => s + v, 0);
+    const d = document.createElement("div");
+    d.className = "ft-task" + (taskState[i] ? " done" : "");
+    d.innerHTML = '<div class="ft-chk">' + (taskState[i] ? '<svg width="10" height="10" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="2" fill="none"/></svg>' : '') + '</div><span class="ft-task-name">' + t.label + '</span><span class="ft-task-ct">' + ct + '</span>';
+    d.onclick = () => { taskState[i] = !taskState[i]; renderTasks(); render(); };
+    el.appendChild(d);
+  });
+}
+
+renderTasks();
+render();
+</script>

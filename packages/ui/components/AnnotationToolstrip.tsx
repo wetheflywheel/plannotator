@@ -29,7 +29,7 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
 
   return (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
         {/* Input method group */}
         <div className="inline-flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5 border border-border/30">
           <ToolstripButton
@@ -105,12 +105,24 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
               </svg>
             }
           />
+          <ToolstripButton
+            active={mode === 'quickLabel'}
+            onClick={() => onModeChange('quickLabel')}
+            label="Label"
+            color="warning"
+            mounted={mounted}
+            icon={
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            }
+          />
         </div>
 
         {/* Help */}
         <button
           onClick={() => setShowHelp(true)}
-          className="ml-2 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          className="ml-2 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors hidden sm:block"
         >
           how does this work?
         </button>
@@ -180,4 +192,3 @@ export const AnnotationToolstrip: React.FC<AnnotationToolstripProps> = ({
     </>
   );
 };
-
