@@ -4,6 +4,10 @@ const STORAGE_KEY_TOC = 'plannotator-toc-enabled';
 const STORAGE_KEY_STICKY_ACTIONS = 'plannotator-sticky-actions-enabled';
 const STORAGE_KEY_PLAN_WIDTH = 'plannotator-plan-width';
 const STORAGE_KEY_CHECKLIST_WIDTH = 'plannotator-checklist-width';
+const STORAGE_KEY_CHECKLIST_VIEW = 'plannotator-checklist-view';
+const STORAGE_KEY_COVERAGE_LAYOUT = 'plannotator-coverage-layout';
+
+export type CoverageLayout = 'stacked' | 'side-by-side';
 
 export type PlanWidth = 'compact' | 'default' | 'wide';
 
@@ -42,4 +46,22 @@ export function getChecklistWidth(): PlanWidth {
 
 export function saveChecklistWidth(width: PlanWidth): void {
   storage.setItem(STORAGE_KEY_CHECKLIST_WIDTH, width);
+}
+
+export function getChecklistView(): 'checklist' | 'coverage' {
+  const v = storage.getItem(STORAGE_KEY_CHECKLIST_VIEW);
+  return v === 'coverage' ? 'coverage' : 'checklist';
+}
+
+export function saveChecklistView(mode: 'checklist' | 'coverage'): void {
+  storage.setItem(STORAGE_KEY_CHECKLIST_VIEW, mode);
+}
+
+export function getCoverageLayout(): CoverageLayout {
+  const v = storage.getItem(STORAGE_KEY_COVERAGE_LAYOUT);
+  return v === 'stacked' ? 'stacked' : 'side-by-side';
+}
+
+export function saveCoverageLayout(layout: CoverageLayout): void {
+  storage.setItem(STORAGE_KEY_COVERAGE_LAYOUT, layout);
 }

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { CoverageFileTree } from './CoverageFileTree';
 import { CoverageTaskList } from './CoverageTaskList';
+import { getCoverageLayout, saveCoverageLayout } from '@plannotator/ui/utils/uiPreferences';
+import type { CoverageLayout } from '@plannotator/ui/utils/uiPreferences';
 import type { CoverageData } from '../hooks/useChecklistCoverage';
 import type { ChecklistItem, ChecklistItemStatus, ChecklistItemResult } from '@plannotator/shared/checklist-types';
-
-type CoverageLayout = 'stacked' | 'side-by-side';
 
 interface CoverageViewProps {
   coverageData: CoverageData;
@@ -41,7 +41,8 @@ export const CoverageView: React.FC<CoverageViewProps> = ({
   onSetStatus,
   onSelectItem,
 }) => {
-  const [layout, setLayout] = useState<CoverageLayout>('side-by-side');
+  const [layout, setLayoutRaw] = useState<CoverageLayout>(getCoverageLayout);
+  const setLayout = (l: CoverageLayout) => { setLayoutRaw(l); saveCoverageLayout(l); };
   const isSideBySide = layout === 'side-by-side';
 
   return (

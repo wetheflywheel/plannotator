@@ -17,7 +17,7 @@ import { useChecklistProgress } from './hooks/useChecklistProgress';
 import { useChecklistDraft } from './hooks/useChecklistDraft';
 import { useChecklistCoverage } from './hooks/useChecklistCoverage';
 import { exportChecklistResults } from './utils/exportChecklist';
-import { getChecklistWidth, saveChecklistWidth, PLAN_WIDTH_OPTIONS } from '@plannotator/ui/utils/uiPreferences';
+import { getChecklistWidth, saveChecklistWidth, getChecklistView, saveChecklistView, PLAN_WIDTH_OPTIONS } from '@plannotator/ui/utils/uiPreferences';
 import type { PlanWidth } from '@plannotator/ui/utils/uiPreferences';
 import type { Checklist, ChecklistItem, ChecklistItemStatus, ChecklistItemResult } from './hooks/useChecklistState';
 import type { ChecklistPR, ChecklistViewMode } from '@plannotator/shared/checklist-types';
@@ -268,7 +268,8 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
   const [isPanelOpen, setIsPanelOpen] = useState(true);
   const [notePopover, setNotePopover] = useState<NotePopoverState | null>(null);
   const [automations, setAutomations] = useState<ChecklistAutomations>({ postToPR: false, approveIfAllPass: false });
-  const [viewMode, setViewMode] = useState<ChecklistViewMode>('checklist');
+  const [viewMode, setViewModeRaw] = useState<ChecklistViewMode>(getChecklistView);
+  const setViewMode = (mode: ChecklistViewMode) => { setViewModeRaw(mode); saveChecklistView(mode); };
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [checklistWidth, setChecklistWidth] = useState<PlanWidth>(getChecklistWidth);
   const documentRef = useRef<HTMLDivElement>(null);
@@ -465,6 +466,8 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
   isSubmittingRef.current = isSubmitting;
   const hasCoverageRef = useRef(hasCoverage);
   hasCoverageRef.current = hasCoverage;
+  const viewModeRef = useRef(viewMode);
+  viewModeRef.current = viewMode;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -537,7 +540,7 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
         case 'v':
           if (hasCoverageRef.current) {
             e.preventDefault();
-            setViewMode(prev => prev === 'checklist' ? 'coverage' : 'checklist');
+            setViewMode(viewModeRef.current === 'checklist' ? 'coverage' : 'checklist');
           }
           break;
         case 'Enter':
