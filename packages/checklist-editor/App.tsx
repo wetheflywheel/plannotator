@@ -37,17 +37,38 @@ const DEMO_CHECKLIST: Checklist = {
     provider: 'github' as const,
   },
   fileDiffs: {
-    'src/middleware/csrf.ts': { hunks: 3, lines: 145, status: 'new' },
-    'src/middleware/auth.ts': { hunks: 5, lines: 320, status: 'modified' },
-    'src/middleware/session-migration.ts': { hunks: 4, lines: 210, status: 'new' },
-    'src/middleware/api-key.ts': { hunks: 2, lines: 85, status: 'modified' },
-    'src/routes/api.ts': { hunks: 2, lines: 60, status: 'modified' },
-    'src/lib/api-client.ts': { hunks: 6, lines: 480, status: 'modified' },
-    'src/hooks/useAuth.ts': { hunks: 4, lines: 190, status: 'new' },
-    'src/pages/login.tsx': { hunks: 8, lines: 650, status: 'modified' },
-    'src/auth/providers.ts': { hunks: 5, lines: 380, status: 'new' },
-    'src/components/AuthButton.tsx': { hunks: 3, lines: 120, status: 'modified' },
-    'src/components/ErrorMessage.tsx': { hunks: 2, lines: 75, status: 'new' },
+    // Modified — smaller touch-ups to existing code
+    'src/pages/login.tsx': { hunks: 8, lines: 320, status: 'modified' },
+    'src/lib/api-client.ts': { hunks: 5, lines: 180, status: 'modified' },
+    'src/middleware/auth.ts': { hunks: 4, lines: 140, status: 'modified' },
+    'src/pages/dashboard.tsx': { hunks: 3, lines: 110, status: 'modified' },
+    'src/components/AuthButton.tsx': { hunks: 3, lines: 90, status: 'modified' },
+    'src/middleware/api-key.ts': { hunks: 2, lines: 65, status: 'modified' },
+    'src/routes/api.ts': { hunks: 2, lines: 55, status: 'modified' },
+    'src/components/UserMenu.tsx': { hunks: 2, lines: 50, status: 'modified' },
+    'src/config/auth.ts': { hunks: 1, lines: 30, status: 'modified' },
+    'src/utils/redirect.ts': { hunks: 1, lines: 20, status: 'modified' },
+    // New — bulk of the PR is fresh code
+    'src/auth/providers.ts': { hunks: 10, lines: 920, status: 'new' },
+    'src/auth/oauth-flow.ts': { hunks: 8, lines: 780, status: 'new' },
+    'src/middleware/session-migration.ts': { hunks: 7, lines: 650, status: 'new' },
+    'src/hooks/useAuth.ts': { hunks: 6, lines: 580, status: 'new' },
+    'src/middleware/csrf.ts': { hunks: 5, lines: 480, status: 'new' },
+    'src/lib/token-store.ts': { hunks: 5, lines: 450, status: 'new' },
+    'src/components/OAuthCallback.tsx': { hunks: 5, lines: 420, status: 'new' },
+    'src/hooks/useTokenRefresh.ts': { hunks: 4, lines: 360, status: 'new' },
+    'src/auth/pkce.ts': { hunks: 4, lines: 340, status: 'new' },
+    'src/components/ErrorMessage.tsx': { hunks: 3, lines: 280, status: 'new' },
+    'src/components/SessionExpired.tsx': { hunks: 3, lines: 240, status: 'new' },
+    'src/auth/token-validator.ts': { hunks: 3, lines: 220, status: 'new' },
+    'src/utils/jwt-decode.ts': { hunks: 2, lines: 180, status: 'new' },
+    'src/types/auth.ts': { hunks: 2, lines: 150, status: 'new' },
+    'src/lib/csrf.ts': { hunks: 2, lines: 130, status: 'new' },
+    'tests/auth/providers.test.ts': { hunks: 5, lines: 480, status: 'new' },
+    'tests/auth/oauth-flow.test.ts': { hunks: 4, lines: 390, status: 'new' },
+    'tests/middleware/csrf.test.ts': { hunks: 3, lines: 310, status: 'new' },
+    'tests/hooks/useAuth.test.ts': { hunks: 3, lines: 280, status: 'new' },
+    'tests/middleware/session-migration.test.ts': { hunks: 2, lines: 220, status: 'new' },
   },
   items: [
     {
@@ -63,7 +84,7 @@ const DEMO_CHECKLIST: Checklist = {
       ],
       reason: 'CSRF protection is security-critical and automated tests may not catch middleware ordering issues.',
       files: ['src/middleware/csrf.ts', 'src/routes/api.ts'],
-      diffMap: { 'src/middleware/csrf.ts': 3, 'src/routes/api.ts': 2 },
+      diffMap: { 'src/middleware/csrf.ts': 4, 'src/routes/api.ts': 3, 'src/lib/csrf.ts': 2 },
       critical: true,
     },
     {
@@ -79,7 +100,7 @@ const DEMO_CHECKLIST: Checklist = {
       ],
       reason: 'Race conditions in token refresh can cause cascading 401s and logout the user.',
       files: ['src/lib/api-client.ts', 'src/hooks/useAuth.ts'],
-      diffMap: { 'src/lib/api-client.ts': 4, 'src/hooks/useAuth.ts': 3 },
+      diffMap: { 'src/lib/api-client.ts': 5, 'src/hooks/useAuth.ts': 3, 'src/hooks/useTokenRefresh.ts': 3, 'src/lib/token-store.ts': 4 },
       critical: true,
     },
     {
@@ -95,7 +116,7 @@ const DEMO_CHECKLIST: Checklist = {
       ],
       reason: 'Core user flow that must work correctly.',
       files: ['src/pages/login.tsx', 'src/middleware/auth.ts'],
-      diffMap: { 'src/pages/login.tsx': 5, 'src/middleware/auth.ts': 3 },
+      diffMap: { 'src/pages/login.tsx': 6, 'src/middleware/auth.ts': 4, 'src/utils/redirect.ts': 1, 'src/pages/dashboard.tsx': 3 },
     },
     {
       id: 'auth-4',
@@ -110,7 +131,7 @@ const DEMO_CHECKLIST: Checklist = {
       ],
       reason: 'OAuth flows involve third-party redirects that are difficult to test automatically.',
       files: ['src/auth/providers.ts'],
-      diffMap: { 'src/auth/providers.ts': 5, 'src/pages/login.tsx': 2 },
+      diffMap: { 'src/auth/providers.ts': 6, 'src/pages/login.tsx': 3, 'src/components/OAuthCallback.tsx': 4, 'src/auth/pkce.ts': 2 },
     },
     {
       id: 'auth-5',
@@ -125,7 +146,7 @@ const DEMO_CHECKLIST: Checklist = {
       ],
       reason: 'A forced logout would affect all active users and is unacceptable for a production migration.',
       files: ['src/middleware/session-migration.ts'],
-      diffMap: { 'src/middleware/session-migration.ts': 4, 'src/middleware/auth.ts': 2 },
+      diffMap: { 'src/middleware/session-migration.ts': 5, 'src/middleware/auth.ts': 3, 'src/lib/token-store.ts': 2, 'src/components/SessionExpired.tsx': 2 },
       critical: true,
     },
     {
@@ -140,7 +161,7 @@ const DEMO_CHECKLIST: Checklist = {
       ],
       reason: 'Breaking API key auth would disrupt automated integrations.',
       files: ['src/middleware/api-key.ts'],
-      diffMap: { 'src/middleware/api-key.ts': 2 },
+      diffMap: { 'src/middleware/api-key.ts': 3, 'src/config/auth.ts': 2, 'src/routes/api.ts': 1 },
     },
     {
       id: 'auth-7',
@@ -153,7 +174,7 @@ const DEMO_CHECKLIST: Checklist = {
         'Trigger rate limiting (5+ failed attempts) and verify the message',
       ],
       reason: 'Error copy is hard to verify without visual inspection.',
-      diffMap: { 'src/components/ErrorMessage.tsx': 2, 'src/pages/login.tsx': 1 },
+      diffMap: { 'src/components/ErrorMessage.tsx': 3, 'src/pages/login.tsx': 2, 'src/components/SessionExpired.tsx': 1 },
     },
     {
       id: 'auth-8',
@@ -166,7 +187,7 @@ const DEMO_CHECKLIST: Checklist = {
         'Verify there is no layout shift when the spinner appears',
       ],
       reason: 'Loading state polish requires visual verification.',
-      diffMap: { 'src/components/AuthButton.tsx': 3, 'src/lib/api-client.ts': 2, 'src/hooks/useAuth.ts': 1 },
+      diffMap: { 'src/components/AuthButton.tsx': 4, 'src/lib/api-client.ts': 3, 'src/hooks/useAuth.ts': 2, 'src/components/UserMenu.tsx': 2, 'src/pages/dashboard.tsx': 2 },
     },
   ],
 };
@@ -292,6 +313,19 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // One-time on mount
+
+  // Set status and auto-collapse the item
+  const handleSetStatus = useCallback((id: string, status: ChecklistItemStatus) => {
+    state.setStatus(id, status);
+    if (status !== 'pending') {
+      setExpandedItems(prev => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [state.setStatus]);
 
   // Toggle item expansion
   const handleToggleExpand = useCallback((id: string) => {
@@ -454,21 +488,27 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
           if (s.selectedItemId) {
             e.preventDefault();
             const r = s.getResult(s.selectedItemId);
-            s.setStatus(s.selectedItemId, r.status === 'passed' ? 'pending' : 'passed');
+            const next = r.status === 'passed' ? 'pending' : 'passed';
+            s.setStatus(s.selectedItemId, next);
+            if (next !== 'pending') setExpandedItems(prev => { const n = new Set(prev); n.delete(s.selectedItemId!); return n; });
           }
           break;
         case 'f':
           if (s.selectedItemId) {
             e.preventDefault();
             const r = s.getResult(s.selectedItemId);
-            s.setStatus(s.selectedItemId, r.status === 'failed' ? 'pending' : 'failed');
+            const next = r.status === 'failed' ? 'pending' : 'failed';
+            s.setStatus(s.selectedItemId, next);
+            if (next !== 'pending') setExpandedItems(prev => { const n = new Set(prev); n.delete(s.selectedItemId!); return n; });
           }
           break;
         case 's':
           if (s.selectedItemId) {
             e.preventDefault();
             const r = s.getResult(s.selectedItemId);
-            s.setStatus(s.selectedItemId, r.status === 'skipped' ? 'pending' : 'skipped');
+            const next = r.status === 'skipped' ? 'pending' : 'skipped';
+            s.setStatus(s.selectedItemId, next);
+            if (next !== 'pending') setExpandedItems(prev => { const n = new Set(prev); n.delete(s.selectedItemId!); return n; });
           }
           break;
         case 'n':
@@ -572,7 +612,9 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
                 </button>
                 {balanceOpen && (
                   <div className="mt-2 bg-muted/50 rounded-lg p-3 border border-border/30">
-                    <PRBalance fileDiffs={checklist.fileDiffs} />
+                    <div className="bg-card rounded-md border border-border/20 p-3">
+                      <PRBalance fileDiffs={checklist.fileDiffs} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -622,7 +664,7 @@ const ChecklistAppInner: React.FC<ChecklistAppInnerProps> = ({ checklist, origin
                       onToggleExpand={handleToggleExpand}
                       onOpenNote={handleOpenNote}
                       getResult={state.getResult}
-                      onSetStatus={state.setStatus}
+                      onSetStatus={handleSetStatus}
                     />
                   );
                 })}
