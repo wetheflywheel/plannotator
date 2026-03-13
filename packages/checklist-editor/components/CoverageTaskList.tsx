@@ -52,7 +52,7 @@ export const CoverageTaskList: React.FC<CoverageTaskListProps> = ({
                   onClick={() => onSelectItem(item.id)}
                   className={`flex items-center gap-2 px-3 py-1.5 cursor-default transition-colors duration-100 ${
                     isSelected ? 'bg-muted/50' : 'hover:bg-muted/20'
-                  } ${item.critical ? 'border-l-2 border-destructive/40' : ''}`}
+                  }`}
                 >
                   {/* Status dot */}
                   <StatusIcon status={result.status} className="w-4 h-4 shrink-0" />
