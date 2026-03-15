@@ -28,6 +28,7 @@ export interface Annotation {
   images?: ImageAttachment[]; // Attached images with human-readable names
   isQuickLabel?: boolean; // true if created via quick label chip
   quickLabelTip?: string; // optional instruction tip from the label definition
+  diffContext?: 'added' | 'removed' | 'modified'; // set when annotation created in plan diff view
   // web-highlighter metadata for cross-element selections
   startMeta?: {
     parentTagName: string;

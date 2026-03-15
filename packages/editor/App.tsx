@@ -1152,18 +1152,16 @@ const App: React.FC = () => {
               showCancel
             />
             <div className="min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16">
-              {/* Annotation Toolstrip (hidden during plan diff) */}
-              {!isPlanDiffActive && (
-                <div className="w-full mb-3 md:mb-4 flex items-center justify-start" style={{ maxWidth: planMaxWidth }}>
-                  <AnnotationToolstrip
-                    inputMethod={inputMethod}
-                    onInputMethodChange={handleInputMethodChange}
-                    mode={editorMode}
-                    onModeChange={handleEditorModeChange}
-                    taterMode={taterMode}
-                  />
-                </div>
-              )}
+              {/* Annotation Toolstrip */}
+              <div className="w-full mb-3 md:mb-4 flex items-center justify-start" style={{ maxWidth: planMaxWidth }}>
+                <AnnotationToolstrip
+                  inputMethod={inputMethod}
+                  onInputMethodChange={handleInputMethodChange}
+                  mode={editorMode}
+                  onModeChange={handleEditorModeChange}
+                  taterMode={taterMode}
+                />
+              </div>
 
               {/* Plan Diff View or Normal Plan View */}
               {isPlanDiffActive && planDiff.diffBlocks && planDiff.diffStats ? (
@@ -1177,6 +1175,11 @@ const App: React.FC = () => {
                   baseVersionLabel={planDiff.diffBaseVersion != null ? `v${planDiff.diffBaseVersion}` : undefined}
                   baseVersion={planDiff.diffBaseVersion ?? undefined}
                   maxWidth={planMaxWidth}
+                  annotations={annotations}
+                  onAddAnnotation={handleAddAnnotation}
+                  onSelectAnnotation={handleSelectAnnotation}
+                  selectedAnnotationId={selectedAnnotationId}
+                  mode={editorMode}
                 />
               ) : (
                 <Viewer

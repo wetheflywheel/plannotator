@@ -27,6 +27,7 @@ export interface SharePayload {
   p: string;  // plan markdown
   a: ShareableAnnotation[];
   g?: ShareableImage[];  // global attachments (path strings or [path, name] tuples)
+  d?: (string | null)[];  // diffContext per annotation (parallel to `a`): 'added' | 'removed' | 'modified' | null
 }
 
 /**
@@ -87,7 +88,7 @@ export function toShareable(annotations: Annotation[]): ShareableAnnotation[] {
  * Note: blockId, offsets, and meta will need to be populated separately
  * by finding the text in the rendered document.
  */
-export function fromShareable(data: ShareableAnnotation[]): Annotation[] {
+export function fromShareable(data: ShareableAnnotation[], diffContexts?: (string | null)[] | null): Annotation[] {
   const typeMap: Record<string, AnnotationType> = {
     'D': AnnotationType.DELETION,
     'R': AnnotationType.REPLACEMENT,
@@ -98,6 +99,7 @@ export function fromShareable(data: ShareableAnnotation[]): Annotation[] {
 
   return data.map((item, index) => {
     const type = item[0];
+    const dc = diffContexts?.[index] as Annotation['diffContext'] | null | undefined;
 
     // Handle global comments specially: ['G', text, author, images?]
     if (type === 'G') {
@@ -116,6 +118,7 @@ export function fromShareable(data: ShareableAnnotation[]): Annotation[] {
         createdA: Date.now() + index,
         author: author || undefined,
         images: parseShareableImages(rawImages),
+        ...(dc ? { diffContext: dc } : {}),
       };
     }
 
@@ -140,6 +143,7 @@ export function fromShareable(data: ShareableAnnotation[]): Annotation[] {
       author: author || undefined,
       images: parseShareableImages(rawImages),
       ...(isQuickLabel ? { isQuickLabel } : {}),
+      ...(dc ? { diffContext: dc } : {}),
       // startMeta/endMeta will be set by web-highlighter
     };
   });
@@ -148,6 +152,16 @@ export function fromShareable(data: ShareableAnnotation[]): Annotation[] {
 /**
  * Generate a full shareable URL from plan and annotations
  */
+/**
+ * Build the diffContext parallel array for the share payload.
+ * Returns undefined if no annotations have diffContext (keeps payload small).
+ */
+function buildDiffContextArray(annotations: Annotation[]): (string | null)[] | undefined {
+  const hasAny = annotations.some(a => a.diffContext);
+  if (!hasAny) return undefined;
+  return annotations.map(a => a.diffContext || null);
+}
+
 export async function generateShareUrl(
   markdown: string,
   annotations: Annotation[],
@@ -158,6 +172,7 @@ export async function generateShareUrl(
     p: markdown,
     a: toShareable(annotations),
     g: globalAttachments?.length ? toShareableImages(globalAttachments) : undefined,
+    d: buildDiffContextArray(annotations),
   };
 
   const hash = await compress(payload);
@@ -229,6 +244,7 @@ export async function createShortShareUrl(
       p: markdown,
       a: toShareable(annotations),
       g: globalAttachments?.length ? toShareableImages(globalAttachments) : undefined,
+      d: buildDiffContextArray(annotations),
     };
 
     const compressed = await compress(payload);
