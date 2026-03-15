@@ -55,9 +55,7 @@ export function ThemeProvider({
     const modeSupport = themeInfo?.modeSupport ?? 'both';
 
     let applyLight = effectiveMode === 'light';
-    // Dark-only themes: never apply .light (would trigger light-mode CSS overrides on dark bg)
     if (modeSupport === 'dark-only') applyLight = false;
-    // Light-only themes: always apply .light
     if (modeSupport === 'light-only') applyLight = true;
 
     return `theme-${colorTheme}${applyLight ? ' light' : ''}`;
@@ -104,7 +102,6 @@ export function ThemeProvider({
   };
 
   const value: ThemeProviderState = {
-    // Backward compat: theme/setTheme map to mode/setMode
     theme: mode,
     setTheme: setMode,
     mode,

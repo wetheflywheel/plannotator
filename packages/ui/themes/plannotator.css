@@ -27,7 +27,7 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
   --radius: 0.75rem;
 
-  --code-bg: oklch(0.13 0.015 260);
+  --code-bg: oklch(0.26 0.02 260);
   --focus-highlight: oklch(0.70 0.20 200);
 }
 
@@ -56,5 +56,5 @@
   --warning: oklch(0.55 0.18 85);
   --warning-foreground: oklch(0.18 0.02 260);
 
-  --code-bg: oklch(0.96 0.005 260);
+  --code-bg: oklch(0.92 0.01 260);
 }

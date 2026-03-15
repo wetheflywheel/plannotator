@@ -28,7 +28,7 @@
   --font-mono: 'Source Code Pro', ui-monospace, monospace;
   --radius: 0.75rem;
 
-  --code-bg: #171717;
+  --code-bg: #2a2a2a;
   --focus-highlight: #3584E4;
 }
 
@@ -57,6 +57,6 @@
   --warning: #e5a50a;
   --warning-foreground: #323232;
 
-  --code-bg: #f0f0f0;
+  --code-bg: #ebebeb;
   --focus-highlight: #3584E4;
 }

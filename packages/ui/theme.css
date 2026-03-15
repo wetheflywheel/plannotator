@@ -6,8 +6,10 @@
 @import "./themes/soft-pop.css";
 @import "./themes/adwaita.css";
 @import "./themes/caffeine.css";
-@import "./themes/cyberdyne.css";
-@import "./themes/cyberfunk.css";
+@import "./themes/synthwave-84.css";
+@import "./themes/catppuccin.css";
+@import "./themes/rose-pine.css";
+@import "./themes/monokai-pro.css";
 @import "./themes/doom-64.css";
 @import "./themes/dracula.css";
 @import "./themes/gruvbox.css";
@@ -15,6 +17,7 @@
 @import "./themes/quantum-rose.css";
 @import "./themes/solar-dusk.css";
 @import "./themes/terminal.css";
+@import "./themes/tokyo-night.css";
 @import "./themes/tinacious.css";
 
 /* Tailwind bridge — maps CSS vars to utility classes */

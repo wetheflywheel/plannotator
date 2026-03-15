@@ -12,10 +12,12 @@
    Code Review Specific Styles
    ===================================================== */
 
-/* @pierre/diffs theme integration */
+/* @pierre/diffs theme integration — pass plannotator theme colors into shadow DOM */
 diffs-container {
-  --pierre-bg: var(--background);
-  --pierre-fg: var(--foreground);
+  --diffs-dark-bg: var(--background);
+  --diffs-light-bg: var(--background);
+  --diffs-dark: var(--foreground);
+  --diffs-light: var(--foreground);
 }
 
 /* Diff line backgrounds - synchronized with plannotator colors */

@@ -1,19 +1,14 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useTheme } from './ThemeProvider';
 
 type Mode = 'dark' | 'light' | 'system';
 
 export const ThemeTab: React.FC = () => {
   const { mode, setMode, colorTheme, setColorTheme, availableThemes } = useTheme();
-  const [search, setSearch] = useState('');
 
   const resolvedMode: 'dark' | 'light' = mode === 'system'
     ? (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
     : mode;
-
-  const filtered = search
-    ? availableThemes.filter(t => t.name.toLowerCase().includes(search.toLowerCase()))
-    : availableThemes;
 
   return (
     <>
@@ -62,18 +57,9 @@ export const ThemeTab: React.FC = () => {
 
       {/* Theme */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Theme</label>
-        </div>
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Filter themes..."
-          className="w-full px-2.5 py-1.5 rounded-md text-xs bg-muted border border-border text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-        />
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Theme</label>
         <div className="grid grid-cols-3 gap-2 max-h-[340px] overflow-y-auto pr-1">
-          {filtered.map(theme => {
+          {availableThemes.map(theme => {
             const isSelected = colorTheme === theme.id;
             const colors = theme.colors[resolvedMode];
             return (
