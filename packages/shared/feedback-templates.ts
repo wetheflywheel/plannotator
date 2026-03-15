@@ -14,7 +14,7 @@ export const planDenyFeedback = (
   feedback: string,
   toolName: string = "ExitPlanMode",
 ): string =>
-  `YOUR PLAN WAS NOT APPROVED. You MUST revise the plan to address ALL of the feedback below before calling ${toolName} again. Do not resubmit the same plan — use the Edit tool to make targeted changes to the plan file first.\n\n${feedback || "Plan changes requested"}`;
+  `YOUR PLAN WAS NOT APPROVED. You MUST revise the plan to address ALL of the feedback below before calling ${toolName} again. Do not resubmit the same plan — use the Edit tool to make targeted changes to the plan file first. Do NOT change the plan title (first # heading) unless the user explicitly asks you to.\n\n${feedback || "Plan changes requested"}`;
 
 // ── Code review ──────────────────────────────────────────────────────
 

@@ -71,6 +71,19 @@ describe("feedback-templates", () => {
   });
 
   /**
+   * Version history is keyed by the plan's first # heading + date.
+   * If the agent renames the heading on resubmission, the version chain breaks
+   * and the user loses diffs (#296). The deny template must instruct the agent
+   * to preserve the title.
+   */
+  test("plan deny instructs agent to preserve plan title", () => {
+    const result = planDenyFeedback("feedback");
+    // Must mention the heading / title and tell the agent not to change it
+    expect(result.toLowerCase()).toContain("title");
+    expect(result.toLowerCase()).toContain("heading");
+  });
+
+  /**
    * Approved code review is a distinct message — it should NOT contain
    * directive language that would confuse the agent into thinking there's work to do.
    */
