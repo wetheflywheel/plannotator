@@ -1244,37 +1244,39 @@ const App: React.FC = () => {
             />
             <div className="min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16">
               {/* Annotation Toolstrip */}
-              {(
-                <div className="w-full mb-3 md:mb-4 flex items-center justify-start" style={{ maxWidth: planMaxWidth }}>
-                  <AnnotationToolstrip
-                    inputMethod={inputMethod}
-                    onInputMethodChange={handleInputMethodChange}
+              <div className="w-full mb-3 md:mb-4 flex items-center justify-start" style={{ maxWidth: planMaxWidth }}>
+                <AnnotationToolstrip
+                  inputMethod={inputMethod}
+                  onInputMethodChange={handleInputMethodChange}
+                  mode={editorMode}
+                  onModeChange={handleEditorModeChange}
+                  taterMode={taterMode}
+                />
+              </div>
+
+              {/* Plan Diff View — rendered when diff data exists, hidden when inactive */}
+              {planDiff.diffBlocks && planDiff.diffStats && (
+                <div className="w-full flex justify-center" style={{ display: isPlanDiffActive ? undefined : 'none' }}>
+                  <PlanDiffViewer
+                    diffBlocks={planDiff.diffBlocks}
+                    diffStats={planDiff.diffStats}
+                    diffMode={planDiffMode}
+                    onDiffModeChange={setPlanDiffMode}
+                    onPlanDiffToggle={() => setIsPlanDiffActive(false)}
+                    repoInfo={repoInfo}
+                    baseVersionLabel={planDiff.diffBaseVersion != null ? `v${planDiff.diffBaseVersion}` : undefined}
+                    baseVersion={planDiff.diffBaseVersion ?? undefined}
+                    maxWidth={planMaxWidth}
+                    annotations={diffAnnotations}
+                    onAddAnnotation={handleAddAnnotation}
+                    onSelectAnnotation={handleSelectAnnotation}
+                    selectedAnnotationId={selectedAnnotationId}
                     mode={editorMode}
-                    onModeChange={handleEditorModeChange}
-                    taterMode={taterMode}
                   />
                 </div>
               )}
-
-              {/* Plan Diff View or Normal Plan View */}
-              {isPlanDiffActive && planDiff.diffBlocks && planDiff.diffStats ? (
-                <PlanDiffViewer
-                  diffBlocks={planDiff.diffBlocks}
-                  diffStats={planDiff.diffStats}
-                  diffMode={planDiffMode}
-                  onDiffModeChange={setPlanDiffMode}
-                  onPlanDiffToggle={() => setIsPlanDiffActive(false)}
-                  repoInfo={repoInfo}
-                  baseVersionLabel={planDiff.diffBaseVersion != null ? `v${planDiff.diffBaseVersion}` : undefined}
-                  baseVersion={planDiff.diffBaseVersion ?? undefined}
-                  maxWidth={planMaxWidth}
-                  annotations={diffAnnotations}
-                  onAddAnnotation={handleAddAnnotation}
-                  onSelectAnnotation={handleSelectAnnotation}
-                  selectedAnnotationId={selectedAnnotationId}
-                  mode={editorMode}
-                />
-              ) : (
+              {/* Normal Plan View — always mounted, hidden during diff mode */}
+              <div className="w-full flex justify-center" style={{ display: isPlanDiffActive && planDiff.diffBlocks ? 'none' : undefined }}>
                 <Viewer
                   key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
                   ref={viewerRef}
@@ -1303,7 +1305,7 @@ const App: React.FC = () => {
                   linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: handleLinkedDocBack, label: vaultBrowser.activeFile ? 'Vault File' : undefined } : null}
                   imageBaseDir={imageBaseDir}
                 />
-              )}
+              </div>
             </div>
           </main>
 
