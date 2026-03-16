@@ -930,7 +930,7 @@ const ReviewApp: React.FC = () => {
                     {diffError ? (
                       <>
                         <h3 className="text-sm font-medium text-destructive">Failed to load diff</h3>
-                        <p className="text-xs text-muted-foreground mt-1">{diffError}</p>
+                        <p className="text-xs text-muted-foreground mt-1 max-w-sm break-words line-clamp-3">{diffError}</p>
                       </>
                     ) : (
                       <>
