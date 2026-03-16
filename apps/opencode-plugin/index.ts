@@ -19,6 +19,7 @@
  * @packageDocumentation
  */
 
+import path from "path";
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import {
   startPlannotatorServer,
@@ -55,23 +56,19 @@ const DEFAULT_PLAN_FILE = "PLAN.md";
  * OpenCode injects text like "your plan at /path/to/plan.md" when experimental plan mode is on.
  * Falls back to PLAN.md in the project directory.
  */
-function resolvePlanFilePath(system: string[], projectDir: string): string {
-  const joined = system.join("\n");
-
+function resolvePlanFilePath(systemText: string, projectDir: string): string {
   // Match OpenCode's experimental plan mode path injection
   // e.g. "your plan at .opencode/plans/1234-slug.md" or "plan at /absolute/path.md"
-  const match = joined.match(/your plan at ([^\s.][^\s]*\.md)/i)
-    || joined.match(/plan file (?:already )?exists at ([^\s.][^\s]*\.md)/i);
+  const match = systemText.match(/your plan at ([^\s.][^\s]*\.md)/i)
+    || systemText.match(/plan file (?:already )?exists at ([^\s.][^\s]*\.md)/i);
 
   if (match?.[1]) {
     const parsed = match[1];
-    // If it's already absolute, return as-is
     if (parsed.startsWith("/")) return parsed;
-    // Resolve relative to project directory
-    return `${projectDir}/${parsed}`;
+    return path.join(projectDir, parsed);
   }
 
-  return `${projectDir}/${DEFAULT_PLAN_FILE}`;
+  return path.join(projectDir, DEFAULT_PLAN_FILE);
 }
 
 // ── Planning prompt (adapted from Pi) ─────────────────────────────────────
@@ -146,6 +143,9 @@ export const PlannotatorPlugin: Plugin = async (ctx) => {
   // Resolved plan file path (set during system.transform, read by submit_plan)
   let resolvedPlanFilePath: string | null = null;
 
+  // Agents list is static for the session lifetime — fetch once and cache
+  let cachedAgents: any[] | null = null;
+
   // Helper to determine if sharing is enabled (lazy evaluation)
   // Priority: OpenCode config > env var > default (enabled)
   async function getSharingEnabled(): Promise<boolean> {
@@ -212,8 +212,8 @@ export const PlannotatorPlugin: Plugin = async (ctx) => {
     // Inject planning instructions into system prompt
     "experimental.chat.system.transform": async (input, output) => {
       // Skip for title generation requests
-      const existingSystem = output.system.join("\n").toLowerCase();
-      if (existingSystem.includes("title generator") || existingSystem.includes("generate a title")) {
+      const systemText = output.system.join("\n");
+      if (systemText.toLowerCase().includes("title generator") || systemText.toLowerCase().includes("generate a title")) {
         return;
       }
 
@@ -244,12 +244,14 @@ export const PlannotatorPlugin: Plugin = async (ctx) => {
         // Hardcoded exclusion: build agent
         if (lastUserAgent === "build") return;
 
-        // Dynamic exclusion: check agent mode via API
-        const agentsResponse = await ctx.client.app.agents({
-          query: { directory: ctx.directory }
-        });
-        const agents = agentsResponse.data;
-        const agent = agents?.find((a: { name: string }) => a.name === lastUserAgent);
+        // Agents list is static — cache after first fetch
+        if (!cachedAgents) {
+          const agentsResponse = await ctx.client.app.agents({
+            query: { directory: ctx.directory }
+          });
+          cachedAgents = agentsResponse.data ?? [];
+        }
+        const agent = cachedAgents.find((a: { name: string }) => a.name === lastUserAgent);
 
         // Skip if agent is a sub-agent
         // @ts-ignore - Agent has mode field
@@ -260,8 +262,8 @@ export const PlannotatorPlugin: Plugin = async (ctx) => {
         return;
       }
 
-      // Resolve plan file path from OpenCode's system prompt
-      const planFilePath = resolvePlanFilePath(output.system, ctx.directory);
+      // Resolve plan file path from OpenCode's system prompt (reuse already-joined string)
+      const planFilePath = resolvePlanFilePath(systemText, ctx.directory);
       resolvedPlanFilePath = planFilePath;
 
       // Plan agent: inject full iterative planning prompt
@@ -456,16 +458,13 @@ Do NOT proceed with implementation until your plan is approved.
         async execute(args, context) {
           // Resolve plan content: prefer file on disk, fall back to arg
           let planContent = args.plan || "";
-          const planFilePath = resolvedPlanFilePath || `${ctx.directory}/${DEFAULT_PLAN_FILE}`;
+          const planFilePath = resolvedPlanFilePath || path.join(ctx.directory, DEFAULT_PLAN_FILE);
 
           if (!planContent) {
             try {
-              const file = Bun.file(planFilePath);
-              if (await file.exists()) {
-                planContent = await file.text();
-              }
+              planContent = await Bun.file(planFilePath).text();
             } catch {
-              // File read failed, fall through
+              // File doesn't exist or read failed, fall through
             }
           }
 
@@ -473,16 +472,17 @@ Do NOT proceed with implementation until your plan is approved.
             return `Error: No plan content found. Either pass the plan as an argument or write it to ${planFilePath} first.`;
           }
 
+          const sharingEnabled = await getSharingEnabled();
           const server = await startPlannotatorServer({
             plan: planContent,
             origin: "opencode",
-            sharingEnabled: await getSharingEnabled(),
+            sharingEnabled,
             shareBaseUrl: getShareBaseUrl(),
             htmlContent,
             opencodeClient: ctx.client,
             onReady: async (url, isRemote, port) => {
               handleServerReady(url, isRemote, port);
-              if (isRemote && await getSharingEnabled()) {
+              if (isRemote && sharingEnabled) {
                 await writeRemoteShareLink(planContent, getShareBaseUrl(), "review the plan", "plan only").catch(() => {});
               }
             },
