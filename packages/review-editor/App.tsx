@@ -34,6 +34,7 @@ import { useExternalAnnotations } from '@plannotator/ui/hooks/useExternalAnnotat
 import { useAgentJobs } from '@plannotator/ui/hooks/useAgentJobs';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
+import { AutomationsDropdown } from '@plannotator/ui/components/AutomationsDropdown';
 import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from 'dockview-react';
 import { ReviewHeaderMenu } from './components/ReviewHeaderMenu';
 import { ReviewSidebar } from './components/ReviewSidebar';
@@ -1130,6 +1131,31 @@ const ReviewApp: React.FC = () => {
     }
   }, []);
 
+  const handleAutomationSend = useCallback(async (feedback: string) => {
+    setIsSendingFeedback(true);
+    try {
+      const agentSwitchSettings = getAgentSwitchSettings();
+      const effectiveAgent = getEffectiveAgentName(agentSwitchSettings);
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          approved: false,
+          feedback,
+          annotations: [],
+          ...(effectiveAgent && { agentSwitch: effectiveAgent }),
+        }),
+      });
+      if (res.ok) {
+        setSubmitted('feedback');
+      } else {
+        throw new Error('Failed to send');
+      }
+    } catch {
+      setIsSendingFeedback(false);
+    }
+  }, []);
+
   // Approve without feedback (LGTM)
   const handleApprove = useCallback(async () => {
     setIsApproving(true);
@@ -1490,6 +1516,15 @@ const ReviewApp: React.FC = () => {
                 Unified
               </button>
             </div>
+
+            {origin && (
+              <AutomationsDropdown
+                context="review"
+                onSend={handleAutomationSend}
+                disabled={isSendingFeedback || isApproving || !!submitted}
+              />
+            )}
+
 
             {origin ? (
               <>

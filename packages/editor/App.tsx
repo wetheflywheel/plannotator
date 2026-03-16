@@ -10,6 +10,7 @@ import { Annotation, Block, EditorMode, type InputMethod, type ImageAttachment, 
 import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
 import { StickyHeaderLane } from '@plannotator/ui/components/StickyHeaderLane';
+import { AutomationsDropdown } from '@plannotator/ui/components/AutomationsDropdown';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
 import { Settings } from '@plannotator/ui/components/Settings';
@@ -855,6 +856,27 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAutomationSend = async (feedback: string) => {
+    setIsSubmitting(true);
+    try {
+      const planSaveSettings = getPlanSaveSettings();
+      await fetch('/api/deny', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          feedback,
+          planSave: {
+            enabled: planSaveSettings.enabled,
+            ...(planSaveSettings.customPath && { customPath: planSaveSettings.customPath }),
+          },
+        })
+      });
+      setSubmitted('denied');
+    } catch {
+      setIsSubmitting(false);
+    }
+  };
+
   // Annotate mode handler — sends feedback via /api/feedback
   const handleAnnotateFeedback = async () => {
     setIsSubmitting(true);
@@ -1577,7 +1599,7 @@ const App: React.FC = () => {
 
               {/* Annotation Toolstrip (hidden during plan diff and archive mode) */}
               {!isPlanDiffActive && !archive.archiveMode && (
-                <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-start" style={{ maxWidth: planMaxWidth }}>
+                <div data-print-hide className="w-full mb-3 md:mb-4 flex items-center justify-between" style={{ maxWidth: planMaxWidth }}>
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
                     onInputMethodChange={handleInputMethodChange}
@@ -1585,6 +1607,13 @@ const App: React.FC = () => {
                     onModeChange={handleEditorModeChange}
                     taterMode={taterMode}
                   />
+                  <div style={taterMode ? { marginRight: 40 } : undefined}>
+                    <AutomationsDropdown
+                      context="plan"
+                      onSend={handleAutomationSend}
+                      disabled={isSubmitting || !!submitted}
+                    />
+                  </div>
                 </div>
               )}
 

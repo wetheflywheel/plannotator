@@ -58,6 +58,7 @@ import {
 import { useAgents } from '../hooks/useAgents';
 import { KeyboardShortcuts } from './KeyboardShortcuts';
 import { type QuickLabel, getQuickLabels, saveQuickLabels, resetQuickLabels, DEFAULT_QUICK_LABELS, getLabelColors, LABEL_COLOR_MAP } from '../utils/quickLabels';
+import { type Automation, type AutomationContext, getAutomations, saveAutomations } from '../utils/automations';
 import { hasNewSettings, markNewSettingsSeen } from '../utils/newSettingsHint';
 import { ThemeTab } from './ThemeTab';
 import { isMac, modKey, altKey } from '../utils/platform';
@@ -69,8 +70,9 @@ import {
   saveFileBrowserSettings,
   type FileBrowserSettings,
 } from '../utils/fileBrowser';
+import { AutomationsSettings } from './AutomationsSettings';
 
-type SettingsTab = 'general' | 'theme' | 'display' | 'saving' | 'labels' | 'shortcuts' | 'ai' | 'files' | 'obsidian' | 'bear' | 'octarine' | 'comments';
+type SettingsTab = 'general' | 'theme' | 'display' | 'saving' | 'labels' | 'automations' | 'shortcuts' | 'ai' | 'files' | 'obsidian' | 'bear' | 'octarine' | 'comments';
 
 interface SettingsProps {
   taterMode: boolean;
@@ -576,6 +578,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
   const [aiProvider, setAiProvider] = useState<string | null>(null);
   const [fileBrowserSettings, setFileBrowserSettings] = useState<FileBrowserSettings>({ enabled: false, directories: [] });
   const [newDirPath, setNewDirPath] = useState('');
+  const [automationsState, setAutomationsState] = useState<Automation[]>([]);
 
   // Fetch available agents for OpenCode
   const { agents: availableAgents, validateAgent, getAgentWarning } = useAgents(origin ?? null);
@@ -595,6 +598,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
         t.push({ id: 'ai', label: 'AI' });
       }
     }
+    t.push({ id: 'automations', label: 'Automations' });
     t.push({ id: 'shortcuts', label: 'Shortcuts' });
     return t;
   }, [mode, aiProviders.length]);
@@ -633,6 +637,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
       setQuickLabelsState(getQuickLabels());
       setAiProvider(getAIProviderSettings().providerId);
       setFileBrowserSettings(getFileBrowserSettings());
+      setAutomationsState(getAutomations(mode));
 
       // Validate agent setting when dialog opens
       if (origin === 'opencode') {
@@ -662,6 +667,19 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
     bearDefaultSaveAvailable,
     octarineDefaultSaveAvailable,
   ]);
+
+  // Listen for "Configure..." from AutomationsDropdown
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.tab) {
+        setActiveTab(detail.tab);
+        setShowDialog(true);
+      }
+    };
+    window.addEventListener('plannotator:open-settings', handler);
+    return () => window.removeEventListener('plannotator:open-settings', handler);
+  }, []);
 
   // Fetch detected vaults when Obsidian is enabled
   useEffect(() => {
@@ -817,6 +835,12 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                     }`}
                   >
                     {tab.label}
+                    {showNewHints && (tab.id === 'display' || tab.id === 'labels') && (
+                      <span className="text-[8px] font-semibold uppercase tracking-wide px-1 py-px rounded-full bg-primary/15 text-primary leading-none">new</span>
+                    )}
+                    {tab.id === 'automations' && (
+                      <span className="text-[8px] font-semibold uppercase tracking-wide px-1 py-px rounded-full bg-primary/15 text-primary leading-none">beta</span>
+                    )}
                   </button>
                 ))}
               </nav>
@@ -1553,6 +1577,18 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                       Use {altKey}{isMac ? '' : '+'}1 through {altKey}{isMac ? '' : '+'}0 when the annotation toolbar is visible to apply a label instantly.
                     </div>
                   </>
+                )}
+
+                {/* === AUTOMATIONS TAB === */}
+                {activeTab === 'automations' && (
+                  <AutomationsSettings
+                    context={mode}
+                    automations={automationsState}
+                    onChange={(updated) => {
+                      setAutomationsState(updated);
+                      saveAutomations(mode, updated);
+                    }}
+                  />
                 )}
 
                 {/* === SHORTCUTS TAB === */}
