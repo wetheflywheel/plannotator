@@ -137,7 +137,7 @@ export const PlanCleanDiffView: React.FC<PlanCleanDiffViewProps> = ({
       endOffset: content.length,
       type,
       text,
-      originalText: content.slice(0, 500),
+      originalText: content,
       createdA: now,
       author: getIdentity(),
       images,
