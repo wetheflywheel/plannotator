@@ -6,8 +6,8 @@
  *
  * When the agent is in plan mode:
  * - Injects Pi-style iterative planning prompt
- * - Agent writes plan to file on disk (PLAN.md or .opencode/plans/*.md)
- * - submit_plan reads plan from disk and opens browser UI
+ * - Agent writes the working plan to a per-session file under ~/.plannotator/session-plans/
+ * - submit_plan reads the session plan file (or falls back to the passed plan argument)
  * - plan_exit suppressed in favor of submit_plan
  *
  * Environment variables:
@@ -19,7 +19,6 @@
  * @packageDocumentation
  */
 
-import path from "path";
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import {
   startPlannotatorServer,
@@ -37,6 +36,11 @@ import { getGitContext, runGitDiff } from "@plannotator/server/git";
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
 import { resolveMarkdownFile } from "@plannotator/server/resolve-file";
 import { planDenyFeedback } from "@plannotator/shared/feedback-templates";
+import {
+  ensureSessionPlanPath,
+  getSessionPlanPath,
+  stripConflictingPlanModeRules,
+} from "./plan-mode";
 
 // @ts-ignore - Bun import attribute for text
 import indexHtml from "./plannotator.html" with { type: "text" };
@@ -47,29 +51,6 @@ import reviewHtml from "./review-editor.html" with { type: "text" };
 const reviewHtmlContent = reviewHtml as unknown as string;
 
 const DEFAULT_PLAN_TIMEOUT_SECONDS = 345_600; // 96 hours
-const DEFAULT_PLAN_FILE = "PLAN.md";
-
-// ── Plan file resolution ──────────────────────────────────────────────────
-
-/**
- * Parse the plan file path from OpenCode's injected system prompt.
- * OpenCode injects text like "your plan at /path/to/plan.md" when experimental plan mode is on.
- * Falls back to PLAN.md in the project directory.
- */
-function resolvePlanFilePath(systemText: string, projectDir: string): string {
-  // Match OpenCode's experimental plan mode path injection
-  // e.g. "your plan at .opencode/plans/1234-slug.md" or "plan at /absolute/path.md"
-  const match = systemText.match(/your plan at ([^\s.][^\s]*\.md)/i)
-    || systemText.match(/plan file (?:already )?exists at ([^\s.][^\s]*\.md)/i);
-
-  if (match?.[1]) {
-    const parsed = match[1];
-    if (parsed.startsWith("/")) return parsed;
-    return path.join(projectDir, parsed);
-  }
-
-  return path.join(projectDir, DEFAULT_PLAN_FILE);
-}
 
 // ── Planning prompt (adapted from Pi) ─────────────────────────────────────
 
@@ -78,21 +59,23 @@ function getPlanningPrompt(planFilePath: string): string {
 
 You are pair-planning with the user. Your plan file is at ${planFilePath}.
 
-Available tools: read, bash, grep, glob, write (${planFilePath} only), edit (${planFilePath} only), submit_plan, question
+You MUST NOT make any changes to the codebase during planning. The ONLY file you may create or update is ${planFilePath}.
 
-Do not run destructive bash commands (rm, git push, npm install, etc.) — focus on reading and exploring the codebase.
+Use the available exploration tools to inspect the codebase. Use the available file-editing tool to create and update ${planFilePath}. Use submit_plan when the plan is ready, and use the question tool when you need information only the user can provide.
+
+Do not run destructive shell commands (rm, git push, npm install, etc.) — focus on reading and exploring the codebase.
 
 ### The Loop
 
 Repeat until the plan is complete:
 
-1. **Explore** — Use read, grep, glob, bash, and subagents to understand the codebase. Actively search for existing functions, utilities, and patterns that can be reused.
-2. **Update the plan file** — After each discovery, immediately capture what you learned in ${planFilePath}. Don't wait until the end. Use write for the initial draft, then edit for all subsequent updates.
+1. **Explore** — Use the available read/search/shell tools and subagents to understand the codebase. Actively search for existing functions, utilities, and patterns that can be reused.
+2. **Update the plan file** — After each discovery, immediately capture what you learned in ${planFilePath}. Don't wait until the end. Create the initial draft with the available file-editing tool, then keep refining the same file incrementally.
 3. **Ask the user** — When you hit an ambiguity or decision you can't resolve from code alone, use the question tool to ask. Then go back to step 1.
 
 ### First Turn
 
-Start by quickly scanning key files to form an initial understanding of the task scope. Then create the plan file using the write tool with a skeleton (headers and rough notes), and ask the user your first round of questions via the question tool. Don't explore exhaustively before engaging the user. After the initial write, use the edit tool for all subsequent updates.
+Start by quickly scanning key files to form an initial understanding of the task scope. Then create the plan file with a skeleton (headers and rough notes), and ask the user your first round of questions via the question tool. Don't explore exhaustively before engaging the user. Keep updating the same file as your understanding improves.
 
 ### Asking Good Questions
 
@@ -119,13 +102,11 @@ Keep the plan concise enough to scan quickly, but detailed enough to execute eff
 
 Your plan is ready when you've addressed all ambiguities and it covers: what to change, which files to modify, what existing code to reuse, and how to verify. Call submit_plan to submit for visual review.
 
-Do NOT call plan_exit — use submit_plan for plan review.
-
 ### Revising After Feedback
 
 When the user denies a plan with feedback:
 1. Read ${planFilePath} to see the current plan.
-2. Use the edit tool to make targeted changes addressing the feedback — do NOT rewrite the entire file.
+2. Use the available file-editing tool to make targeted changes addressing the feedback — do NOT rewrite the entire file.
 3. Call submit_plan again to resubmit.
 
 ### Ending Your Turn
@@ -140,9 +121,6 @@ Do not end your turn without doing one of these two things.`;
 // ── Plugin ────────────────────────────────────────────────────────────────
 
 export const PlannotatorPlugin: Plugin = async (ctx) => {
-  // Resolved plan file path (set during system.transform, read by submit_plan)
-  let resolvedPlanFilePath: string | null = null;
-
   // Agents list is static for the session lifetime — fetch once and cache
   let cachedAgents: any[] | null = null;
 
@@ -262,12 +240,10 @@ export const PlannotatorPlugin: Plugin = async (ctx) => {
         return;
       }
 
-      // Resolve plan file path from OpenCode's system prompt (reuse already-joined string)
-      const planFilePath = resolvePlanFilePath(systemText, ctx.directory);
-      resolvedPlanFilePath = planFilePath;
-
       // Plan agent: inject full iterative planning prompt
       if (lastUserAgent === "plan") {
+        const planFilePath = ensureSessionPlanPath(input.sessionID);
+        output.system = stripConflictingPlanModeRules(output.system);
         output.system.push(getPlanningPrompt(planFilePath));
         return;
       }
@@ -449,23 +425,27 @@ Do NOT proceed with implementation until your plan is approved.
           plan: tool.schema
             .string()
             .optional()
-            .describe("The plan in markdown format. If omitted, reads from the plan file on disk."),
+            .describe("The plan in markdown format. If omitted, reads from the session plan file on disk."),
           summary: tool.schema
             .string()
             .describe("A brief 1-2 sentence summary of what the plan accomplishes"),
         },
 
         async execute(args, context) {
-          // Resolve plan content: prefer file on disk, fall back to arg
-          let planContent = args.plan || "";
-          const planFilePath = resolvedPlanFilePath || path.join(ctx.directory, DEFAULT_PLAN_FILE);
+          // Resolve plan content: prefer the session plan file on disk, fall back to the tool argument
+          let planContent = "";
+          const planFilePath = getSessionPlanPath(context.sessionID);
 
-          if (!planContent) {
-            try {
-              planContent = await Bun.file(planFilePath).text();
-            } catch {
-              // File doesn't exist or read failed, fall through
-            }
+          try {
+            planContent = await Bun.file(planFilePath).text();
+          } catch {
+            // File doesn't exist or read failed, fall through to arg
+          }
+
+          if (!planContent.trim() && args.plan?.trim()) {
+            planContent = args.plan;
+            const writablePlanPath = ensureSessionPlanPath(context.sessionID);
+            await Bun.write(writablePlanPath, planContent);
           }
 
           if (!planContent.trim()) {
