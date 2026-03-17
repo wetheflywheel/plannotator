@@ -6,12 +6,16 @@ import { useDismissOnOutsideAndEscape } from '../hooks/useDismissOnOutsideAndEsc
 interface AutomationsDropdownProps {
   context: AutomationContext;
   onSend: (feedback: string) => Promise<void>;
+  activeHooks: string[];
+  onToggleHook: (id: string) => void;
   disabled?: boolean;
 }
 
 export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
   context,
   onSend,
+  activeHooks,
+  onToggleHook,
   disabled = false,
 }) => {
   const [open, setOpen] = useState(false);
@@ -20,6 +24,8 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const automations = useMemo(() => getEnabledAutomations(context), [context, open]);
+  const actions = useMemo(() => automations.filter(a => a.type === 'smart-action'), [automations]);
+  const hooks = useMemo(() => automations.filter(a => a.type === 'prompt-hook'), [automations]);
 
   const handleDismiss = useCallback(() => {
     if (!sendingId) setOpen(false);
@@ -31,17 +37,13 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
     onDismiss: handleDismiss,
   });
 
-  // Position state
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
   useEffect(() => {
     if (!open || !triggerRef.current) return;
     const update = () => {
       const rect = triggerRef.current!.getBoundingClientRect();
-      setPos({
-        top: rect.bottom + 6,
-        right: window.innerWidth - rect.right,
-      });
+      setPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
     };
     update();
     window.addEventListener('scroll', update, true);
@@ -52,14 +54,11 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
     };
   }, [open]);
 
-  const handleRowClick = async (automation: Automation) => {
+  const handleActionClick = async (automation: Automation) => {
     if (sendingId || disabled) return;
     setSendingId(automation.id);
-
-    // Brief highlight, then fade out and send
     await new Promise(r => setTimeout(r, 150));
     setOpen(false);
-
     try {
       await onSend(automation.feedback);
     } finally {
@@ -76,6 +75,8 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
 
   if (automations.length === 0 && !open) return null;
 
+  const hookCount = activeHooks.length;
+
   return (
     <>
       <button
@@ -90,7 +91,12 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
       >
         <SparklesIcon />
         <span className="text-xs font-medium hidden md:inline">Automations</span>
-        <ChevronIcon open={open} />
+        {hookCount > 0 && (
+          <span className="min-w-[14px] h-[14px] rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center leading-none">
+            {hookCount}
+          </span>
+        )}
+        {hookCount === 0 && <ChevronIcon open={open} />}
       </button>
 
       {open && pos && createPortal(
@@ -116,92 +122,116 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
           `}</style>
 
           <div
-            className="bg-popover border border-border/60 rounded-lg shadow-xl overflow-hidden min-w-[220px] max-w-[280px]"
+            className="bg-popover border border-border/60 rounded-lg shadow-xl overflow-hidden min-w-[200px] max-w-[260px]"
             style={{
               animation: sendingId
                 ? 'auto-dropdown-out 0.12s ease-in forwards'
                 : 'auto-dropdown-in 0.12s ease-out',
             }}
           >
-            {/* Header */}
-            <div className="px-2.5 py-1.5 border-b border-border/30">
-              <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                Automations
-              </span>
-            </div>
+            {automations.length === 0 ? (
+              <div className="px-3 py-4 text-center">
+                <div className="text-[11px] text-muted-foreground">No automations configured</div>
+                <button onClick={handleConfigure} className="text-[10px] text-primary hover:underline mt-1">
+                  Set up automations
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Prompt Hooks */}
+                {hooks.length > 0 && (
+                  <div className="px-1.5 py-1.5 space-y-px">
+                    {hooks.map((hook, index) => {
+                      const isActive = activeHooks.includes(hook.id);
+                      return (
+                        <button
+                          key={hook.id}
+                          onClick={() => onToggleHook(hook.id)}
+                          className={`group w-full flex items-center gap-2 px-2 py-1 rounded-md text-left transition-colors ${
+                            isActive ? 'bg-primary/8' : 'hover:bg-muted/60'
+                          }`}
+                          style={{
+                            animationDelay: `${index * 18}ms`,
+                            animationName: 'auto-row-in',
+                            animationDuration: '0.1s',
+                            animationFillMode: 'both',
+                            animationTimingFunction: 'ease-out',
+                          }}
+                        >
+                          <span className={`w-3 h-3 rounded-sm border flex items-center justify-center flex-shrink-0 transition-colors ${
+                            isActive
+                              ? 'bg-primary border-primary text-primary-foreground'
+                              : 'border-muted-foreground/30 group-hover:border-muted-foreground/50'
+                          }`}>
+                            {isActive && (
+                              <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className={`text-[11px] leading-tight truncate ${
+                            isActive ? 'text-foreground' : 'text-foreground/80 group-hover:text-foreground'
+                          }`}>
+                            {hook.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
-            {/* Automation rows */}
-            <div className="py-1">
-              {automations.length === 0 ? (
-                <div className="px-3 py-4 text-center">
-                  <div className="text-[11px] text-muted-foreground">No automations configured</div>
-                  <button
-                    onClick={handleConfigure}
-                    className="text-[10px] text-primary hover:underline mt-1"
-                  >
-                    Set up automations
-                  </button>
-                </div>
-              ) : (
-                automations.map((automation, index) => (
-                  <div key={automation.id}>
-                    <button
-                      onClick={() => handleRowClick(automation)}
-                      disabled={!!sendingId}
-                      className={`group w-full flex items-center gap-2 px-2 py-[5px] text-left transition-colors ${
-                        sendingId === automation.id
-                          ? 'bg-primary/10'
-                          : 'hover:bg-muted/60 active:bg-muted'
-                      }`}
-                      style={{
-                        animationDelay: `${index * 18}ms`,
-                        animationName: 'auto-row-in',
-                        animationDuration: '0.1s',
-                        animationFillMode: 'both',
-                        animationTimingFunction: 'ease-out',
-                      }}
-                    >
-                      {/* Accent bar */}
-                      <span
-                        className="w-[3px] self-stretch rounded-full flex-shrink-0"
-                        style={{ backgroundColor: 'var(--secondary)' }}
-                      />
+                {/* Divider */}
+                {hooks.length > 0 && actions.length > 0 && (
+                  <div className="border-t border-border/30 mx-1.5" />
+                )}
 
-                      {/* Icon */}
-                      {automation.icon ? (
-                        <img
-                          src={automation.icon}
-                          alt=""
-                          className="w-4 h-4 rounded flex-shrink-0 object-cover"
-                        />
-                      ) : (
-                        <span className="text-xs leading-none flex-shrink-0">
+                {/* Smart Actions — card-style rows */}
+                {actions.length > 0 && (
+                  <div className="px-1.5 py-1.5 space-y-1">
+                    {actions.map((automation, index) => (
+                      <button
+                        key={automation.id}
+                        onClick={() => handleActionClick(automation)}
+                        disabled={!!sendingId}
+                        className={`group w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left transition-colors ${
+                          sendingId === automation.id
+                            ? 'bg-primary/10'
+                            : 'bg-muted/30 hover:bg-muted/60'
+                        }`}
+                        style={{
+                          animationDelay: `${(hooks.length + index) * 18}ms`,
+                          animationName: 'auto-row-in',
+                          animationDuration: '0.1s',
+                          animationFillMode: 'both',
+                          animationTimingFunction: 'ease-out',
+                        }}
+                      >
+                        <span className="text-sm leading-none flex-shrink-0">
                           {automation.emoji || '✨'}
                         </span>
-                      )}
-
-                      {/* Text */}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[11px] leading-tight text-foreground/85 group-hover:text-foreground truncate">
-                          {automation.name}
-                        </div>
-                        {automation.description && (
-                          <div className="text-[10px] leading-tight text-muted-foreground/50 group-hover:text-muted-foreground/70 truncate">
-                            {automation.description}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[11px] font-medium leading-tight text-foreground/90 group-hover:text-foreground truncate">
+                            {automation.name}
                           </div>
+                          {automation.description && (
+                            <div className="text-[9px] leading-tight text-muted-foreground/50 truncate mt-px">
+                              {automation.description}
+                            </div>
+                          )}
+                        </div>
+                        {sendingId === automation.id ? (
+                          <span className="text-[9px] text-primary flex-shrink-0">sending...</span>
+                        ) : (
+                          <svg className="w-3 h-3 text-muted-foreground/25 group-hover:text-muted-foreground/50 flex-shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                          </svg>
                         )}
-                      </div>
-
-                      {/* Sending indicator */}
-                      {sendingId === automation.id && (
-                        <span className="text-[9px] text-primary flex-shrink-0">sending...</span>
-                      )}
-                    </button>
-
+                      </button>
+                    ))}
                   </div>
-                ))
-              )}
-            </div>
+                )}
+              </>
+            )}
 
             {/* Footer */}
             <div className="border-t border-border/30">
@@ -209,8 +239,11 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
                 onClick={handleConfigure}
                 className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60"
               >
-                <GearIcon />
-                <span className="text-[11px] text-muted-foreground/60 hover:text-foreground">
+                <svg className="w-3 h-3 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="text-[11px] text-muted-foreground/50">
                   Configure...
                 </span>
               </button>
@@ -264,12 +297,5 @@ const ChevronIcon: React.FC<{ open: boolean }> = ({ open }) => (
     fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
   >
     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-  </svg>
-);
-
-const GearIcon: React.FC = () => (
-  <svg className="w-3.5 h-3.5 text-muted-foreground/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
