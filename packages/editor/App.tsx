@@ -761,7 +761,7 @@ const App: React.FC = () => {
     }
 
     let output = hasPlanAnnotations
-      ? exportAnnotations(blocks, annotations, globalAttachments)
+      ? exportAnnotations(blocks, annotations, globalAttachments, annotateSource === 'message' ? 'Message Feedback' : annotateSource === 'file' ? 'File Feedback' : 'Plan Feedback')
       : '';
 
     if (hasDocAnnotations) {

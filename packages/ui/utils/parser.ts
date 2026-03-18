@@ -248,7 +248,7 @@ export const parseMarkdownToBlocks = (markdown: string): Block[] => {
 export const wrapFeedbackForAgent = (feedback: string): string =>
   planDenyFeedback(feedback);
 
-export const exportAnnotations = (blocks: Block[], annotations: any[], globalAttachments: ImageAttachment[] = []): string => {
+export const exportAnnotations = (blocks: Block[], annotations: any[], globalAttachments: ImageAttachment[] = [], title: string = 'Plan Feedback'): string => {
   if (annotations.length === 0 && globalAttachments.length === 0) {
     return 'No changes detected.';
   }
@@ -261,7 +261,7 @@ export const exportAnnotations = (blocks: Block[], annotations: any[], globalAtt
     return a.startOffset - b.startOffset;
   });
 
-  let output = `# Plan Feedback\n\n`;
+  let output = `# ${title}\n\n`;
 
   // Add global reference images section if any
   if (globalAttachments.length > 0) {
