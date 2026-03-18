@@ -128,20 +128,20 @@ if (Get-Command pi -ErrorAction SilentlyContinue) {
 $claudeCommandsDir = if ($env:CLAUDE_CONFIG_DIR) { "$env:CLAUDE_CONFIG_DIR\commands" } else { "$env:USERPROFILE\.claude\commands" }
 New-Item -ItemType Directory -Force -Path $claudeCommandsDir | Out-Null
 
-@"
+@'
 ---
-description: Open interactive code review for current changes
+description: Open interactive code review for current changes or a PR URL
 allowed-tools: Bash(plannotator:*)
 ---
 
 ## Code Review Feedback
 
-!`plannotator review`
+!`plannotator review $ARGUMENTS`
 
 ## Your task
 
 If the review above contains feedback or annotations, address them. If no changes were requested, acknowledge and continue.
-"@ | Set-Content -Path "$claudeCommandsDir\plannotator-review.md"
+'@ | Set-Content -Path "$claudeCommandsDir\plannotator-review.md"
 
 Write-Host "Installed /plannotator-review command to $claudeCommandsDir\plannotator-review.md"
 

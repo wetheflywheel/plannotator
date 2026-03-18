@@ -175,13 +175,13 @@ if not exist "!CLAUDE_COMMANDS_DIR!" mkdir "!CLAUDE_COMMANDS_DIR!"
 
 (
 echo ---
-echo description: Open interactive code review for current changes
+echo description: Open interactive code review for current changes or a PR URL
 echo allowed-tools: Bash^(plannotator:*^)
 echo ---
 echo.
 echo ## Code Review Feedback
 echo.
-echo !`plannotator review`
+echo !`plannotator review $ARGUMENTS`
 echo.
 echo ## Your task
 echo.
