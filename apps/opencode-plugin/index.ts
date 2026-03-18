@@ -31,9 +31,7 @@ import {
   startAnnotateServer,
   handleAnnotateServerReady,
 } from "@plannotator/server/annotate";
-import { getGitContext, runGitDiff } from "@plannotator/server/git";
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
-import { resolveMarkdownFile } from "@plannotator/server/resolve-file";
 import {
   handleReviewCommand,
   handleAnnotateCommand,
@@ -282,6 +280,7 @@ Do NOT proceed with implementation until your plan is approved.
         reviewHtmlContent,
         getSharingEnabled,
         getShareBaseUrl,
+        directory: ctx.directory,
       };
 
       // Fetch last message, run annotation server, get feedback
@@ -325,6 +324,7 @@ Do NOT proceed with implementation until your plan is approved.
         reviewHtmlContent,
         getSharingEnabled,
         getShareBaseUrl,
+        directory: ctx.directory,
       };
 
       if (commandName === "plannotator-review")

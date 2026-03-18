@@ -13,7 +13,7 @@ import {
   startAnnotateServer,
   handleAnnotateServerReady,
 } from "@plannotator/server/annotate";
-import { getGitContext, runGitDiff } from "@plannotator/server/git";
+import { getGitContext, runGitDiffWithContext } from "@plannotator/server/git";
 import { resolveMarkdownFile } from "@plannotator/server/resolve-file";
 
 /** Shared dependencies injected by the plugin */
@@ -23,20 +23,21 @@ export interface CommandDeps {
   reviewHtmlContent: string;
   getSharingEnabled: () => Promise<boolean>;
   getShareBaseUrl: () => string | undefined;
+  directory?: string;
 }
 
 export async function handleReviewCommand(
   event: any,
   deps: CommandDeps
 ) {
-  const { client, reviewHtmlContent, getSharingEnabled, getShareBaseUrl } = deps;
+  const { client, reviewHtmlContent, getSharingEnabled, getShareBaseUrl, directory } = deps;
 
   client.app.log({ level: "info", message: "Opening code review UI..." });
 
-  const gitContext = await getGitContext();
-  const { patch: rawPatch, label: gitRef, error: diffError } = await runGitDiff(
+  const gitContext = await getGitContext(directory);
+  const { patch: rawPatch, label: gitRef, error: diffError } = await runGitDiffWithContext(
     "uncommitted",
-    gitContext.defaultBranch
+    gitContext
   );
 
   const server = await startReviewServer({
