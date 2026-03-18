@@ -46,3 +46,6 @@ opencode.json
 plannotator-local
 # Local research/reference docs (not for repo)
 /reference/
+
+# Automations build artifact
+packages/automations/generated.ts
