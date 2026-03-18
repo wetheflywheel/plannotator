@@ -35,7 +35,7 @@ import { useAgentJobs } from '@plannotator/ui/hooks/useAgentJobs';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
 import { AutomationsDropdown } from '@plannotator/ui/components/AutomationsDropdown';
-import { formatPromptHooks } from '@plannotator/ui/utils/automations';
+import { formatPromptHooks, fetchAutomations, type Automation } from '@plannotator/ui/utils/automations';
 import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from 'dockview-react';
 import { ReviewHeaderMenu } from './components/ReviewHeaderMenu';
 import { ReviewSidebar } from './components/ReviewSidebar';
@@ -166,6 +166,7 @@ const ReviewApp: React.FC = () => {
   const [diffError, setDiffError] = useState<string | null>(null);
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
   const [activeHooks, setActiveHooks] = useState<string[]>([]);
+  const [automationsList, setAutomationsList] = useState<Automation[]>([]);
   const [isApproving, setIsApproving] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
   const [submitted, setSubmitted] = useState<'approved' | 'feedback' | 'exited' | false>(false);
@@ -621,6 +622,11 @@ const ReviewApp: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showExportModal, showDestinationMenu, isSearchOpen, searchQuery, searchMatches, isSearchPending, openSearch, stepSearchMatch, clearSearch, closeSearch, hasSearchableFiles]);
 
+
+  // Fetch automations from server
+  useEffect(() => {
+    fetchAutomations('review').then(res => setAutomationsList(res.automations));
+  }, []);
 
   // Load diff content - try API first, fall back to demo
   useEffect(() => {
@@ -1099,7 +1105,7 @@ const ReviewApp: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           approved: false,
-          feedback: feedbackMarkdown + formatPromptHooks(activeHooks, 'review'),
+          feedback: feedbackMarkdown + formatPromptHooks(activeHooks, automationsList),
           annotations: allAnnotations,
           ...(effectiveAgent && { agentSwitch: effectiveAgent }),
         }),
@@ -1143,7 +1149,7 @@ const ReviewApp: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           approved: false,
-          feedback: feedback + formatPromptHooks(activeHooks, 'review'),
+          feedback: feedback + formatPromptHooks(activeHooks, automationsList),
           annotations: [],
           ...(effectiveAgent && { agentSwitch: effectiveAgent }),
         }),
@@ -1161,7 +1167,7 @@ const ReviewApp: React.FC = () => {
   // Approve without feedback (LGTM)
   const handleApprove = useCallback(async () => {
     setIsApproving(true);
-    const hookText = formatPromptHooks(activeHooks, 'review');
+    const hookText = formatPromptHooks(activeHooks, automationsList);
     try {
       const res = await fetch('/api/feedback', {
         method: 'POST',
@@ -1522,7 +1528,7 @@ const ReviewApp: React.FC = () => {
 
             {origin && (
               <AutomationsDropdown
-                context="review"
+                automations={automationsList}
                 onSend={handleAutomationSend}
                 activeHooks={activeHooks}
                 onToggleHook={id => setActiveHooks(prev => prev.includes(id) ? prev.filter(h => h !== id) : [...prev, id])}

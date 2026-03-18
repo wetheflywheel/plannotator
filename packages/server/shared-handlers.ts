@@ -11,6 +11,16 @@ import { openBrowser } from "./browser";
 import { validateImagePath, validateUploadExtension, UPLOAD_DIR } from "./image";
 import { saveDraft, loadDraft, deleteDraft } from "./draft";
 import { FAVICON_SVG } from "@plannotator/shared/favicon";
+import {
+  type AutomationContext,
+  type AutomationEntry,
+  getAutomations,
+  saveAutomation,
+  deleteAutomation,
+  resetAutomations,
+  updateState,
+  templateToEntry,
+} from "./automations";
 
 /** Serve images from local paths or temp uploads. Used by all 3 servers. */
 export async function handleImage(req: Request): Promise<Response> {
@@ -142,4 +152,86 @@ export async function handleServerReady(
   _port: number,
 ): Promise<void> {
   await openBrowser(url, { isRemote });
+}
+
+/**
+ * Handle automations API routes. Returns a Response if the route matches,
+ * null if it doesn't (so the caller can fall through to other routes).
+ */
+export async function handleAutomationsRoute(
+  req: Request,
+  url: URL,
+  context: AutomationContext,
+  bundledLibrary: AutomationEntry[],
+): Promise<Response | null> {
+  // GET /api/automations — list automations + library
+  if (url.pathname === "/api/automations" && req.method === "GET") {
+    const result = await getAutomations(context, bundledLibrary);
+    return Response.json(result);
+  }
+
+  // POST /api/automations — create or update
+  if (url.pathname === "/api/automations" && req.method === "POST") {
+    try {
+      const body = await req.json() as AutomationEntry;
+      await saveAutomation(context, body);
+      return Response.json({ ok: true });
+    } catch (err) {
+      return Response.json({ error: String(err) }, { status: 400 });
+    }
+  }
+
+  // DELETE /api/automations — remove by name
+  if (url.pathname === "/api/automations" && req.method === "DELETE") {
+    const name = url.searchParams.get("name");
+    if (!name) return Response.json({ error: "Missing name parameter" }, { status: 400 });
+    await deleteAutomation(context, name);
+    return Response.json({ ok: true });
+  }
+
+  // POST /api/automations/reset — reset to library defaults
+  if (url.pathname === "/api/automations/reset" && req.method === "POST") {
+    await resetAutomations(context);
+    return Response.json({ ok: true });
+  }
+
+  // POST /api/automations/state — update enabled/disabled/order
+  if (url.pathname === "/api/automations/state" && req.method === "POST") {
+    try {
+      const body = await req.json() as { enabled?: string[]; disabled?: string[]; order?: string[] };
+      await updateState(context, body);
+      return Response.json({ ok: true });
+    } catch (err) {
+      return Response.json({ error: String(err) }, { status: 400 });
+    }
+  }
+
+  // GET /api/automation-icon — serve icon by automation name
+  if (url.pathname === "/api/automation-icon" && req.method === "GET") {
+    const name = url.searchParams.get("id");
+    if (!name) return Response.json({ error: "Missing id parameter" }, { status: 400 });
+
+    // Check user automations first, then library
+    const result = await getAutomations(context, bundledLibrary);
+    const all = [...result.automations, ...result.library];
+    const automation = all.find(a => a.name === name);
+
+    if (!automation?.icon) return new Response("No icon", { status: 404 });
+
+    if (automation.iconType === "svg") {
+      return new Response(automation.icon, {
+        headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" },
+      });
+    }
+    if (automation.iconType === "png" && automation.icon.startsWith("data:image/png;base64,")) {
+      const b64 = automation.icon.replace("data:image/png;base64,", "");
+      return new Response(Buffer.from(b64, "base64"), {
+        headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" },
+      });
+    }
+
+    return new Response("No icon", { status: 404 });
+  }
+
+  return null; // Route not handled
 }

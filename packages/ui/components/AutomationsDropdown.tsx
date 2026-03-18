@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { getEnabledAutomations, type Automation, type AutomationContext } from '../utils/automations';
+import { type Automation } from '../utils/automations';
 import { useDismissOnOutsideAndEscape } from '../hooks/useDismissOnOutsideAndEscape';
 
 interface AutomationsDropdownProps {
-  context: AutomationContext;
+  automations: Automation[];
   onSend: (feedback: string) => Promise<void>;
   activeHooks: string[];
   onToggleHook: (id: string) => void;
@@ -12,7 +12,7 @@ interface AutomationsDropdownProps {
 }
 
 export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
-  context,
+  automations,
   onSend,
   activeHooks,
   onToggleHook,
@@ -23,9 +23,9 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const automations = useMemo(() => getEnabledAutomations(context), [context, open]);
-  const actions = useMemo(() => automations.filter(a => a.type === 'smart-action'), [automations]);
-  const hooks = useMemo(() => automations.filter(a => a.type === 'prompt-hook'), [automations]);
+  const enabled = useMemo(() => automations.filter(a => a.enabled), [automations]);
+  const actions = useMemo(() => enabled.filter(a => a.type === 'smart-action'), [enabled]);
+  const hooks = useMemo(() => enabled.filter(a => a.type === 'prompt-hook'), [enabled]);
 
   const handleDismiss = useCallback(() => {
     if (!sendingId) setOpen(false);
@@ -73,7 +73,7 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
     );
   };
 
-  if (automations.length === 0 && !open) return null;
+  if (enabled.length === 0 && !open) return null;
 
   const hookCount = activeHooks.length;
 
@@ -129,7 +129,7 @@ export const AutomationsDropdown: React.FC<AutomationsDropdownProps> = ({
                 : 'auto-dropdown-in 0.12s ease-out',
             }}
           >
-            {automations.length === 0 ? (
+            {enabled.length === 0 ? (
               <div className="px-3 py-4 text-center">
                 <div className="text-[11px] text-muted-foreground">No automations configured</div>
                 <button onClick={handleConfigure} className="text-[10px] text-primary hover:underline mt-1">

@@ -39,9 +39,10 @@ import {
 import { getRepoInfo } from "./repo";
 import { detectProjectName } from "./project";
 import { saveConfig, detectGitUser, getServerConfig } from "./config";
-import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, type OpencodeClient } from "./shared-handlers";
+import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, handleAutomationsRoute, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
 import { handleDoc, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc, handleFileBrowserFiles } from "./reference-handlers";
+import { templateToEntry, type AutomationEntry } from "./automations";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { isWSL } from "./browser";
@@ -79,6 +80,8 @@ export interface ServerOptions {
   mode?: "archive";
   /** Custom plan save path — used by archive mode to find saved plans */
   customPlanPath?: string | null;
+  /** Bundled automation library (from generated.ts) */
+  bundledAutomations?: AutomationEntry[];
 }
 
 export interface ServerResult {
@@ -374,6 +377,10 @@ export async function startPlannotatorServer(
             disableIdleTimeout: () => server.timeout(req, 0),
           });
           if (externalResponse) return externalResponse;
+
+          // API: Automations CRUD
+          const automationsResponse = await handleAutomationsRoute(req, url, "plan", options.bundledAutomations || []);
+          if (automationsResponse) return automationsResponse;
 
           // API: Save to notes (decoupled from approve/deny)
           if (url.pathname === "/api/save-notes" && req.method === "POST") {

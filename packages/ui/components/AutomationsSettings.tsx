@@ -3,24 +3,27 @@ import {
   type Automation,
   type AutomationType,
   type AutomationContext,
-  LIBRARY_AUTOMATIONS,
-  resetAutomations,
-  DEFAULT_PLAN_AUTOMATIONS,
-  DEFAULT_PLAN_HOOKS,
-  DEFAULT_REVIEW_AUTOMATIONS,
-  DEFAULT_REVIEW_HOOKS,
+  resetAutomations as resetAutomationsApi,
+  saveAutomation as saveAutomationApi,
+  deleteAutomation as deleteAutomationApi,
 } from '../utils/automations';
 
 interface AutomationsSettingsProps {
   context: AutomationContext;
   automations: Automation[];
+  library: Automation[];
   onChange: (automations: Automation[]) => void;
+  onSave: (automation: Automation) => void;
+  onRefresh: () => void;
 }
 
 export const AutomationsSettings: React.FC<AutomationsSettingsProps> = ({
   context,
   automations,
+  library,
   onChange,
+  onSave,
+  onRefresh,
 }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -29,20 +32,26 @@ export const AutomationsSettings: React.FC<AutomationsSettingsProps> = ({
     const updated = [...automations];
     updated[index] = { ...updated[index], ...patch };
     onChange(updated);
-  }, [automations, onChange]);
+    onSave(updated[index]);
+  }, [automations, onChange, onSave]);
 
   const updateDebounced = useCallback((index: number, patch: Partial<Automation>) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const updated = [...automations];
     updated[index] = { ...updated[index], ...patch };
     onChange(updated);
-  }, [automations, onChange]);
+    debounceRef.current = setTimeout(() => onSave(updated[index]), 300);
+  }, [automations, onChange, onSave]);
 
   const remove = useCallback((index: number) => {
+    const automation = automations[index];
     const updated = automations.filter((_, i) => i !== index);
     onChange(updated);
-    if (automations[index]?.id === expandedId) setExpandedId(null);
-  }, [automations, onChange, expandedId]);
+    if (automation?.id === expandedId) setExpandedId(null);
+    if (automation) {
+      deleteAutomationApi(context, automation.name).then(onRefresh);
+    }
+  }, [automations, onChange, expandedId, context, onRefresh]);
 
   const addCustom = useCallback((type: AutomationType) => {
     const newAutomation: Automation = {
@@ -56,22 +65,19 @@ export const AutomationsSettings: React.FC<AutomationsSettingsProps> = ({
     };
     onChange([...automations, newAutomation]);
     setExpandedId(newAutomation.id);
-  }, [automations, onChange]);
+    onSave(newAutomation);
+  }, [automations, onChange, onSave]);
 
   const addFromLibrary = useCallback((libraryItem: Automation) => {
-    const clone: Automation = { ...libraryItem, id: `${libraryItem.id}-${Date.now()}` };
+    const clone: Automation = { ...libraryItem, source: 'custom' };
     onChange([...automations, clone]);
-  }, [automations, onChange]);
-
-  const defaults = context === 'plan'
-    ? [...DEFAULT_PLAN_AUTOMATIONS, ...DEFAULT_PLAN_HOOKS]
-    : [...DEFAULT_REVIEW_AUTOMATIONS, ...DEFAULT_REVIEW_HOOKS];
+    saveAutomationApi(context, clone).then(onRefresh);
+  }, [automations, onChange, context, onRefresh]);
 
   const handleReset = useCallback(() => {
-    resetAutomations(context);
-    onChange(defaults);
+    resetAutomationsApi(context).then(onRefresh);
     setExpandedId(null);
-  }, [context, defaults, onChange]);
+  }, [context, onRefresh]);
 
   // Split by type
   const smartActions = useMemo(() =>
@@ -81,11 +87,8 @@ export const AutomationsSettings: React.FC<AutomationsSettingsProps> = ({
     automations.map((a, i) => ({ automation: a, index: i })).filter(x => x.automation.type === 'prompt-hook'),
   [automations]);
 
-  const availableLibrary = LIBRARY_AUTOMATIONS[context].filter(
-    lib => !automations.some(a => a.id === lib.id || a.id.startsWith(`${lib.id}-`))
-  );
-  const libraryActions = availableLibrary.filter(a => a.type === 'smart-action');
-  const libraryHooks = availableLibrary.filter(a => a.type === 'prompt-hook');
+  const libraryActions = library.filter(a => a.type === 'smart-action');
+  const libraryHooks = library.filter(a => a.type === 'prompt-hook');
 
   return (
     <>
@@ -194,7 +197,7 @@ export const AutomationsSettings: React.FC<AutomationsSettingsProps> = ({
       </div>
 
       {/* ── Library ── */}
-      {availableLibrary.length > 0 && (
+      {library.length > 0 && (
         <div className="border-t border-border/30 pt-4 mt-2">
           <div className="text-sm font-medium mb-0.5">Library</div>
           <div className="text-[10px] text-muted-foreground/60 mb-3">

@@ -13,7 +13,7 @@ import { isRemoteSession, getServerHostname, getServerPort } from "./remote";
 import type { Origin } from "@plannotator/shared/agents";
 import { type DiffType, type GitContext, runVcsDiff, getVcsFileContentsForDiff, canStageFiles, stageFile, unstageFile, resolveVcsCwd, validateFilePath } from "./vcs";
 import { getRepoInfo } from "./repo";
-import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, type OpencodeClient } from "./shared-handlers";
+import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, handleAutomationsRoute, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
@@ -36,6 +36,7 @@ import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { type PRMetadata, type PRReviewFileComment, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, getPRUser, prRefFromMetadata, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
 import { createAIEndpoints, ProviderRegistry, SessionManager, createProvider, type AIEndpoints, type PiSDKConfig } from "@plannotator/ai";
 import { isWSL } from "./browser";
+import { type AutomationEntry } from "./automations";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -75,6 +76,8 @@ export interface ReviewServerOptions {
   agentCwd?: string;
   /** Cleanup callback invoked when server stops (e.g., remove temp worktree) */
   onCleanup?: () => void | Promise<void>;
+  /** Bundled automation library (from generated.ts) */
+  bundledAutomations?: AutomationEntry[];
 }
 
 export interface ReviewServerResult {
@@ -570,6 +573,10 @@ export async function startReviewServer(
             resolveDecision({ approved: false, feedback: "", annotations: [], exit: true });
             return Response.json({ ok: true });
           }
+
+          // API: Automations CRUD
+          const automationsResponse = await handleAutomationsRoute(req, url, "review", options.bundledAutomations || []);
+          if (automationsResponse) return automationsResponse;
 
           // API: Submit review feedback
           if (url.pathname === "/api/feedback" && req.method === "POST") {
