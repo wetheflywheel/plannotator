@@ -51,6 +51,8 @@ import { registerSession, unregisterSession, listSessions } from "@plannotator/s
 import { openBrowser } from "@plannotator/server/browser";
 import { detectProjectName } from "@plannotator/server/project";
 import { planDenyFeedback } from "@plannotator/shared/feedback-templates";
+import { findSessionLogsForCwd, getLastRenderedMessage, type RenderedMessage } from "./session-log";
+import { findCodexRolloutByThreadId, getLastCodexMessage } from "./codex-session";
 import path from "path";
 
 // Embed the built HTML at compile time
@@ -308,6 +310,97 @@ if (args[0] === "sessions") {
   server.stop();
 
   // Output feedback (captured by slash command)
+  console.log(result.feedback || "No feedback provided.");
+  process.exit(0);
+
+} else if (args[0] === "annotate-last" || args[0] === "last") {
+  // ============================================
+  // ANNOTATE LAST MESSAGE MODE
+  // ============================================
+
+  const projectRoot = process.env.PLANNOTATOR_CWD || process.cwd();
+  const codexThreadId = process.env.CODEX_THREAD_ID;
+  const isCodex = !!codexThreadId;
+
+  let lastMessage: RenderedMessage | null = null;
+
+  if (codexThreadId) {
+    // Codex path: find rollout by thread ID
+    if (process.env.PLANNOTATOR_DEBUG) {
+      console.error(`[DEBUG] Codex detected, thread ID: ${codexThreadId}`);
+    }
+    const rolloutPath = findCodexRolloutByThreadId(codexThreadId);
+    if (rolloutPath) {
+      if (process.env.PLANNOTATOR_DEBUG) {
+        console.error(`[DEBUG] Rollout: ${rolloutPath}`);
+      }
+      const msg = getLastCodexMessage(rolloutPath);
+      if (msg) {
+        lastMessage = { messageId: codexThreadId, text: msg.text, lineNumbers: [] };
+      }
+    }
+  } else {
+    // Claude Code path: find session logs by CWD
+    const candidates = findSessionLogsForCwd(projectRoot);
+
+    if (process.env.PLANNOTATOR_DEBUG) {
+      console.error(`[DEBUG] Project root: ${projectRoot}`);
+      console.error(`[DEBUG] Candidates: ${candidates.join(", ")}`);
+    }
+
+    for (const logPath of candidates) {
+      if (process.env.PLANNOTATOR_DEBUG) {
+        console.error(`[DEBUG] Trying: ${logPath}`);
+      }
+      lastMessage = getLastRenderedMessage(logPath);
+      if (lastMessage) break;
+    }
+  }
+
+  if (!lastMessage) {
+    console.error("No rendered assistant message found in session logs.");
+    process.exit(1);
+  }
+
+  if (process.env.PLANNOTATOR_DEBUG) {
+    console.error(`[DEBUG] Found message ${lastMessage.messageId} (${lastMessage.text.length} chars)`);
+  }
+
+  const annotateProject = (await detectProjectName()) ?? "_unknown";
+
+  const server = await startAnnotateServer({
+    markdown: lastMessage.text,
+    filePath: "last-message",
+    origin: isCodex ? "codex" : "claude-code",
+    mode: "annotate-last",
+    sharingEnabled,
+    shareBaseUrl,
+    htmlContent: planHtmlContent,
+    onReady: async (url, isRemote, port) => {
+      handleAnnotateServerReady(url, isRemote, port);
+
+      if (isRemote && sharingEnabled) {
+        await writeRemoteShareLink(lastMessage.text, shareBaseUrl, "annotate", "message only").catch(() => {});
+      }
+    },
+  });
+
+  registerSession({
+    pid: process.pid,
+    port: server.port,
+    url: server.url,
+    mode: "annotate",
+    project: annotateProject,
+    startedAt: new Date().toISOString(),
+    label: `annotate-last`,
+  });
+
+  const result = await server.waitForDecision();
+
+  await Bun.sleep(1500);
+
+  server.stop();
+
   console.log(result.feedback || "No feedback provided.");
   process.exit(0);
 

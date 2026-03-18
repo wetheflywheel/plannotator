@@ -31,10 +31,13 @@ import {
   startAnnotateServer,
   handleAnnotateServerReady,
 } from "@plannotator/server/annotate";
-import { getGitContext, runGitDiffWithContext } from "@plannotator/server/git";
-import { parsePRUrl, checkGhAuth, fetchPR } from "@plannotator/server/pr";
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
-import { resolveMarkdownFile } from "@plannotator/server/resolve-file";
+import {
+  handleReviewCommand,
+  handleAnnotateCommand,
+  handleAnnotateLastCommand,
+  type CommandDeps,
+} from "./commands";
 import { planDenyFeedback } from "@plannotator/shared/feedback-templates";
 import {
   getPlanDirectory,
@@ -264,194 +267,70 @@ Do NOT proceed with implementation until your plan is approved.
 `);
     },
 
-    // Listen for slash commands
+    // Intercept plannotator-last before the agent sees the command
+    "command.execute.before": async (input, output) => {
+      if (input.command !== "plannotator-last") return;
+
+      // Clear parts so the agent doesn't respond to the command body
+      output.parts = [];
+
+      const deps: CommandDeps = {
+        client: ctx.client,
+        htmlContent,
+        reviewHtmlContent,
+        getSharingEnabled,
+        getShareBaseUrl,
+        directory: ctx.directory,
+      };
+
+      // Fetch last message, run annotation server, get feedback
+      const feedback = await handleAnnotateLastCommand(
+        { properties: { sessionID: input.sessionID } },
+        deps
+      );
+
+      // Send feedback as a new prompt — same pattern as review/annotate
+      if (feedback) {
+        try {
+          await ctx.client.session.prompt({
+            path: { id: input.sessionID },
+            body: {
+              parts: [{
+                type: "text",
+                text: `# Message Annotations\n\n${feedback}\n\nPlease address the annotation feedback above.`,
+              }],
+            },
+          });
+        } catch {
+          // Session may not be available
+        }
+      }
+    },
+
+    // Listen for slash commands (review + annotate)
     event: async ({ event }) => {
       const isCommandEvent =
         event.type === "command.executed" ||
         event.type === "tui.command.execute";
 
+      if (!isCommandEvent) return;
+
       // @ts-ignore - Event structure varies
       const commandName = event.properties?.name || event.command || event.payload?.name;
-      const isReviewCommand = commandName === "plannotator-review";
 
-      if (isCommandEvent && isReviewCommand) {
-        // @ts-ignore - Event properties contain arguments
-        const urlArg: string = event.properties?.arguments || "";
-        const isPRMode = urlArg?.startsWith("http://") || urlArg?.startsWith("https://");
+      const deps: CommandDeps = {
+        client: ctx.client,
+        htmlContent,
+        reviewHtmlContent,
+        getSharingEnabled,
+        getShareBaseUrl,
+        directory: ctx.directory,
+      };
 
-        let rawPatch: string;
-        let gitRef: string;
-        let diffError: string | undefined;
-        let gitContext: Awaited<ReturnType<typeof getGitContext>> | undefined;
-        let prMetadata: Awaited<ReturnType<typeof fetchPR>>["metadata"] | undefined;
-
-        if (isPRMode) {
-          ctx.client.app.log({
-            level: "info",
-            message: "Fetching PR for review...",
-          });
-
-          const prRef = parsePRUrl(urlArg);
-          if (!prRef) {
-            ctx.client.app.log({ level: "error", message: `Invalid PR URL: ${urlArg}` });
-            return;
-          }
-
-          try {
-            await checkGhAuth();
-          } catch (err) {
-            ctx.client.app.log({ level: "error", message: err instanceof Error ? err.message : "GitHub CLI auth check failed" });
-            return;
-          }
-
-          const pr = await fetchPR(prRef);
-          rawPatch = pr.rawPatch;
-          gitRef = `PR #${prRef.number}`;
-          prMetadata = pr.metadata;
-        } else {
-          ctx.client.app.log({
-            level: "info",
-            message: "Opening code review UI...",
-          });
-
-          const cwd = ctx.directory;
-          gitContext = await getGitContext(cwd);
-          const diffResult = await runGitDiffWithContext("uncommitted", gitContext);
-          rawPatch = diffResult.patch;
-          gitRef = diffResult.label;
-          diffError = diffResult.error;
-        }
-
-        const server = await startReviewServer({
-          rawPatch,
-          gitRef,
-          error: diffError,
-          origin: "opencode",
-          diffType: isPRMode ? undefined : "uncommitted",
-          gitContext,
-          prMetadata,
-          sharingEnabled: await getSharingEnabled(),
-          shareBaseUrl: getShareBaseUrl(),
-          htmlContent: reviewHtmlContent,
-          opencodeClient: ctx.client,
-          onReady: handleReviewServerReady,
-        });
-
-        const result = await server.waitForDecision();
-        await Bun.sleep(1500);
-        server.stop();
-
-        if (result.feedback) {
-          // @ts-ignore - Event properties contain sessionID
-          const sessionId = event.properties?.sessionID;
-
-          if (sessionId) {
-            const shouldSwitchAgent = result.agentSwitch && result.agentSwitch !== 'disabled';
-            const targetAgent = result.agentSwitch || 'build';
-
-            const message = result.approved
-              ? `# Code Review\n\nCode review completed — no changes requested.`
-              : isPRMode
-                ? result.feedback
-                : `# Code Review Feedback\n\n${result.feedback}\n\nPlease address this feedback.`;
-
-            try {
-              await ctx.client.session.prompt({
-                path: { id: sessionId },
-                body: {
-                  ...(shouldSwitchAgent && { agent: targetAgent }),
-                  parts: [{ type: "text", text: message }],
-                },
-              });
-            } catch {
-              // Session may not be available
-            }
-          }
-        }
-      }
-
-      // Handle /plannotator-annotate command
-      const isAnnotateCommand = commandName === "plannotator-annotate";
-
-      if (isCommandEvent && isAnnotateCommand) {
-        // @ts-ignore - Event properties contain arguments
-        const filePath = event.properties?.arguments || event.arguments || "";
-
-        if (!filePath) {
-          ctx.client.app.log({
-            level: "error",
-            message: "Usage: /plannotator-annotate <file.md>",
-          });
-          return;
-        }
-
-        ctx.client.app.log({
-          level: "info",
-          message: `Opening annotation UI for ${filePath}...`,
-        });
-
-        const projectRoot = process.cwd();
-        const resolved = await resolveMarkdownFile(filePath, projectRoot);
-
-        if (resolved.kind === "ambiguous") {
-          ctx.client.app.log({
-            level: "error",
-            message: `Ambiguous filename "${resolved.input}" — found ${resolved.matches.length} matches:\n${resolved.matches.map((m) => `  ${m}`).join("\n")}`,
-          });
-          return;
-        }
-        if (resolved.kind === "not_found") {
-          ctx.client.app.log({
-            level: "error",
-            message: `File not found: ${resolved.input}`,
-          });
-          return;
-        }
-
-        const absolutePath = resolved.path;
-        ctx.client.app.log({
-          level: "info",
-          message: `Resolved: ${absolutePath}`,
-        });
-        const markdown = await Bun.file(absolutePath).text();
-
-        const server = await startAnnotateServer({
-          markdown,
-          filePath: absolutePath,
-          origin: "opencode",
-          sharingEnabled: await getSharingEnabled(),
-          shareBaseUrl: getShareBaseUrl(),
-          htmlContent: htmlContent,
-          onReady: handleAnnotateServerReady,
-        });
-
-        const result = await server.waitForDecision();
-        await Bun.sleep(1500);
-        server.stop();
-
-        if (result.feedback) {
-          // @ts-ignore - Event properties contain sessionID
-          const sessionId = event.properties?.sessionID;
-
-          if (sessionId) {
-            try {
-              await ctx.client.session.prompt({
-                path: { id: sessionId },
-                body: {
-                  parts: [
-                    {
-                      type: "text",
-                      text: `# Markdown Annotations\n\nFile: ${absolutePath}\n\n${result.feedback}\n\nPlease address the annotation feedback above.`,
-                    },
-                  ],
-                },
-              });
-            } catch {
-              // Session may not be available
-            }
-          }
-        }
-      }
+      if (commandName === "plannotator-review")
+        return handleReviewCommand(event, deps);
+      if (commandName === "plannotator-annotate")
+        return handleAnnotateCommand(event, deps);
     },
 
     tool: {
