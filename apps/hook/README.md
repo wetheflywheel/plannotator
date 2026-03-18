@@ -108,7 +108,7 @@ The plugin registers three slash commands:
 
 | Command | Description |
 |---------|-------------|
-| `/plannotator-review` | Open code review UI for uncommitted changes |
+| `/plannotator-review` | Open code review UI for uncommitted changes or a GitHub PR |
 | `/plannotator-annotate <file.md>` | Annotate any markdown file |
 | `/plannotator-last` | Annotate the agent's last message |
 

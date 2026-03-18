@@ -44,7 +44,13 @@ The plugin registers three slash commands:
 
 ### `/plannotator-review`
 
-Opens a code review UI for uncommitted changes. Requires the CLI to be installed (the slash command runs `plannotator review` under the hood).
+Opens a code review UI for uncommitted changes. Also supports reviewing GitHub pull requests:
+
+```
+/plannotator-review https://github.com/owner/repo/pull/123
+```
+
+Requires the CLI to be installed (the slash command runs `plannotator review` under the hood).
 
 ### `/plannotator-annotate <file.md>`
 

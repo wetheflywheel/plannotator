@@ -73,7 +73,13 @@ The plugin registers three slash commands that work inside your Claude Code sess
 
 ### `/plannotator-review`
 
-Opens a code review UI for your uncommitted `git diff`. See the [code review docs](/docs/commands/code-review/) for details.
+Opens a code review UI for your uncommitted `git diff`. Also supports reviewing GitHub pull requests:
+
+```
+/plannotator-review https://github.com/owner/repo/pull/123
+```
+
+See the [code review docs](/docs/commands/code-review/) for details.
 
 ### `/plannotator-annotate <file.md>`
 
