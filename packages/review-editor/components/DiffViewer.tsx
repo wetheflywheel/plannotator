@@ -10,6 +10,12 @@ import { FileHeader } from './FileHeader';
 import { InlineAnnotation } from './InlineAnnotation';
 import { AnnotationToolbar } from './AnnotationToolbar';
 import { SuggestionModal } from './SuggestionModal';
+import { type ReviewSearchMatch } from '../utils/reviewSearch';
+import {
+  applySearchHighlights,
+  getSearchRoots,
+  retryScrollToSearchMatch,
+} from '../utils/reviewSearchHighlight';
 
 interface DiffViewerProps {
   patch: string;
@@ -32,6 +38,10 @@ interface DiffViewerProps {
   onStage?: () => void;
   canStage?: boolean;
   stageError?: string | null;
+  searchQuery?: string;
+  searchMatches?: ReviewSearchMatch[];
+  activeSearchMatchId?: string | null;
+  activeSearchMatch?: ReviewSearchMatch | null;
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({
@@ -55,6 +65,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onStage,
   canStage = false,
   stageError,
+  searchQuery = '',
+  searchMatches = [],
+  activeSearchMatchId = null,
+  activeSearchMatch = null,
 }) => {
   const { theme, colorTheme, resolvedMode } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -119,6 +133,24 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
     return () => clearTimeout(timeoutId);
   }, [selectedAnnotationId]);
+
+  // Apply search highlights to diff lines (including inside shadow DOM)
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const frameId = requestAnimationFrame(() => {
+      const roots = getSearchRoots(containerRef.current!);
+      roots.forEach(root => applySearchHighlights(root, searchQuery, searchMatches, activeSearchMatchId));
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [searchQuery, searchMatches, activeSearchMatchId, filePath, diffStyle, augmentedDiff]);
+
+  // Scroll to active search match (with retry for lazy-rendered content)
+  useEffect(() => {
+    if (!activeSearchMatch || !containerRef.current) return;
+    return retryScrollToSearchMatch(containerRef.current, activeSearchMatch);
+  }, [activeSearchMatch, filePath, diffStyle]);
 
   // Map annotations to @pierre/diffs format
   const lineAnnotations = useMemo(() => {

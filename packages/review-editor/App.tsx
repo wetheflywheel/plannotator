@@ -12,6 +12,7 @@ import { CodeAnnotation, CodeAnnotationType, SelectedLineRange } from '@plannota
 import { useResizablePanel } from '@plannotator/ui/hooks/useResizablePanel';
 import { useCodeAnnotationDraft } from '@plannotator/ui/hooks/useCodeAnnotationDraft';
 import { useGitAdd } from './hooks/useGitAdd';
+import { isTypingTarget, useReviewSearch } from './hooks/useReviewSearch';
 import { useEditorAnnotations } from '@plannotator/ui/hooks/useEditorAnnotations';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
 import { ResizeHandle } from '@plannotator/ui/components/ResizeHandle';
@@ -113,6 +114,32 @@ const ReviewApp: React.FC = () => {
 
   const identity = useMemo(() => getIdentity(), []);
 
+  const clearPendingSelection = useCallback(() => {
+    setPendingSelection(null);
+  }, []);
+
+  const {
+    searchQuery,
+    isSearchOpen,
+    activeSearchMatchId,
+    activeSearchMatch,
+    activeFileSearchMatches,
+    searchMatches,
+    searchGroups,
+    searchInputRef,
+    openSearch,
+    closeSearch,
+    clearSearch,
+    stepSearchMatch,
+    handleSearchInputChange,
+    handleSelectSearchMatch,
+  } = useReviewSearch({
+    files,
+    activeFileIndex,
+    setActiveFileIndex,
+    clearPendingSelection,
+  });
+
   // Auto-save code annotation drafts
   const { draftBanner, restoreDraft, dismissDraft } = useCodeAnnotationDraft({
     annotations,
@@ -141,10 +168,28 @@ const ReviewApp: React.FC = () => {
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape closes modals
+      // Cmd/Ctrl+F to focus search (only when sidebar is rendered)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !isTypingTarget(e.target)) {
+        if (files.length > 1 || gitContext?.diffOptions) {
+          e.preventDefault();
+          openSearch();
+        }
+        return;
+      }
+
+      // Enter/F3 to step through search matches
+      if ((e.key === 'Enter' || e.key === 'F3') && searchMatches.length > 0 && !isTypingTarget(e.target)) {
+        e.preventDefault();
+        stepSearchMatch(e.shiftKey ? -1 : 1);
+        return;
+      }
+
+      // Escape closes modals or clears search
       if (e.key === 'Escape') {
         if (showExportModal) {
           setShowExportModal(false);
+        } else if (searchQuery) {
+          clearSearch();
         }
       }
       // Cmd/Ctrl+Shift+C to copy diff
@@ -157,7 +202,7 @@ const ReviewApp: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showExportModal]);
+  }, [showExportModal, searchQuery, searchMatches, openSearch, stepSearchMatch, clearSearch, files, gitContext?.diffOptions]);
 
   // Get annotations for active file
   const activeFileAnnotations = useMemo(() => {
@@ -818,6 +863,15 @@ const ReviewApp: React.FC = () => {
                 onSelectWorktree={handleWorktreeSwitch}
                 currentBranch={gitContext?.currentBranch}
                 stagedFiles={stagedFiles}
+                searchQuery={searchQuery}
+                searchInputRef={searchInputRef}
+                onSearchChange={handleSearchInputChange}
+                onSearchClear={clearSearch}
+                searchGroups={searchGroups}
+                searchMatches={searchMatches}
+                activeSearchMatchId={activeSearchMatchId}
+                onSelectSearchMatch={handleSelectSearchMatch}
+                onStepSearchMatch={stepSearchMatch}
               />
               <ResizeHandle {...fileTreeResize.handleProps} />
             </>
@@ -862,6 +916,10 @@ const ReviewApp: React.FC = () => {
                 onStage={() => stageFile(activeFile.path)}
                 canStage={canStageFiles}
                 stageError={stageError}
+                searchQuery={searchQuery}
+                searchMatches={activeFileSearchMatches}
+                activeSearchMatchId={activeSearchMatchId}
+                activeSearchMatch={activeSearchMatch?.filePath === activeFile.path ? activeSearchMatch : null}
               />
             ) : (
               <div className="h-full flex items-center justify-center">

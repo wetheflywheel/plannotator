@@ -448,6 +448,18 @@ diffs-container {
   background: oklch(from var(--success) l c h / 0.1);
 }
 
+/* Search result highlight in sidebar */
+.search-match-highlight {
+  background: oklch(from var(--warning) l c h / 0.25);
+  color: var(--foreground);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.light .search-match-highlight {
+  background: oklch(from var(--warning) l c h / 0.3);
+}
+
 /* Toast animations */
 @keyframes fade-in {
   from { opacity: 0; }
