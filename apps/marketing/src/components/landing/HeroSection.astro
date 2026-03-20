@@ -48,7 +48,7 @@ import AnnoReplace from './AnnoReplace.astro';
           class="agent-btn"
           data-agent="codex"
           data-command="curl -fsSL https://plannotator.ai/install.sh | bash"
-          data-video="https://www.youtube.com/watch?v=a_AT7cEN_9I"
+          data-video="https://x.com/backnotprop/status/2031201677987164572"
         >
           <img src="/assets/icon-codex.png" alt="" class="w-4 h-4 rounded-sm" />
           <span>Codex</span>
@@ -57,7 +57,7 @@ import AnnoReplace from './AnnoReplace.astro';
           class="agent-btn"
           data-agent="opencode"
           data-command="curl -fsSL https://plannotator.ai/install.sh | bash"
-          data-video="https://www.youtube.com/watch?v=a_AT7cEN_9I"
+          data-video="https://youtu.be/_N7uo0EFI-U"
         >
           <img src="/assets/icon-opencode-dark.svg" alt="" class="w-4 h-4 icon-opencode" />
           <span>OpenCode</span>
@@ -171,7 +171,11 @@ import AnnoReplace from './AnnoReplace.astro';
         detail: 'Then run in Claude Code:'
       },
       codex: {
-        detail: 'Review + annotate only — plan mode requires hooks (not yet supported)'
+        steps: [
+          '!plannotator review',
+          '!plannotator last'
+        ],
+        detail: 'Then use in Codex:'
       },
       opencode: {
         steps: [
