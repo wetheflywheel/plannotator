@@ -8,14 +8,16 @@
 import {
   type PRRef,
   type PRMetadata,
+  type PRContext,
   type PRRuntime,
   parsePRUrl as parsePRUrlCore,
   checkGhAuth as checkGhAuthCore,
   fetchPR as fetchPRCore,
   fetchPRFileContent as fetchPRFileContentCore,
+  fetchPRContext as fetchPRContextCore,
 } from "@plannotator/shared/pr-provider";
 
-export type { PRRef, PRMetadata } from "@plannotator/shared/pr-provider";
+export type { PRRef, PRMetadata, PRContext } from "@plannotator/shared/pr-provider";
 
 const runtime: PRRuntime = {
   async runCommand(cmd, args) {
@@ -44,6 +46,12 @@ export function fetchPR(
   ref: PRRef,
 ): Promise<{ metadata: PRMetadata; rawPatch: string }> {
   return fetchPRCore(runtime, ref);
+}
+
+export function fetchPRContext(
+  ref: PRRef,
+): Promise<PRContext> {
+  return fetchPRContextCore(runtime, ref);
 }
 
 export function fetchPRFileContent(

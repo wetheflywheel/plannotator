@@ -41,6 +41,52 @@ export interface PRMetadata {
   url: string;
 }
 
+// --- PR Context Types ---
+
+export interface PRComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
+export interface PRReview {
+  id: string;
+  author: string;
+  state: string;
+  body: string;
+  submittedAt: string;
+}
+
+export interface PRCheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  workflowName: string;
+  detailsUrl: string;
+}
+
+export interface PRLinkedIssue {
+  number: number;
+  url: string;
+  repo: string;
+}
+
+export interface PRContext {
+  body: string;
+  state: string;
+  isDraft: boolean;
+  labels: Array<{ name: string; color: string }>;
+  reviewDecision: string;
+  mergeable: string;
+  mergeStateStatus: string;
+  comments: PRComment[];
+  reviews: PRReview[];
+  checks: PRCheck[];
+  linkedIssues: PRLinkedIssue[];
+}
+
 // --- URL Parsing ---
 
 /**
@@ -140,6 +186,87 @@ export async function fetchPR(
   };
 
   return { metadata, rawPatch: diffResult.stdout };
+}
+
+// --- PR Context ---
+
+const PR_CONTEXT_FIELDS = [
+  "body", "state", "isDraft", "labels",
+  "comments", "reviews", "reviewDecision",
+  "mergeable", "mergeStateStatus",
+  "statusCheckRollup", "closingIssuesReferences",
+].join(",");
+
+function parsePRContext(raw: Record<string, unknown>): PRContext {
+  const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  const login = (v: unknown): string =>
+    typeof v === "object" && v !== null && "login" in v
+      ? String((v as { login: unknown }).login || "")
+      : "";
+
+  return {
+    body: str(raw.body),
+    state: str(raw.state),
+    isDraft: raw.isDraft === true,
+    labels: arr(raw.labels).map((l: any) => ({
+      name: str(l?.name),
+      color: str(l?.color),
+    })),
+    reviewDecision: str(raw.reviewDecision),
+    mergeable: str(raw.mergeable),
+    mergeStateStatus: str(raw.mergeStateStatus),
+    comments: arr(raw.comments).map((c: any) => ({
+      id: str(c?.id),
+      author: login(c?.author),
+      body: str(c?.body),
+      createdAt: str(c?.createdAt),
+      url: str(c?.url),
+    })),
+    reviews: arr(raw.reviews).map((r: any) => ({
+      id: str(r?.id),
+      author: login(r?.author),
+      state: str(r?.state),
+      body: str(r?.body),
+      submittedAt: str(r?.submittedAt),
+    })),
+    checks: arr(raw.statusCheckRollup).map((c: any) => ({
+      name: str(c?.name),
+      status: str(c?.status),
+      conclusion: typeof c?.conclusion === "string" ? c.conclusion : null,
+      workflowName: str(c?.workflowName),
+      detailsUrl: str(c?.detailsUrl),
+    })),
+    linkedIssues: arr(raw.closingIssuesReferences).map((i: any) => ({
+      number: typeof i?.number === "number" ? i.number : 0,
+      url: str(i?.url),
+      repo: i?.repository
+        ? `${login(i.repository.owner)}/${str(i.repository.name)}`
+        : "",
+    })),
+  };
+}
+
+export async function fetchPRContext(
+  runtime: PRRuntime,
+  ref: PRRef,
+): Promise<PRContext> {
+  const repo = `${ref.owner}/${ref.repo}`;
+
+  const result = await runtime.runCommand("gh", [
+    "pr", "view", String(ref.number),
+    "--repo", repo,
+    "--json", PR_CONTEXT_FIELDS,
+  ]);
+
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to fetch PR context: ${result.stderr.trim() || `exit code ${result.exitCode}`}`,
+    );
+  }
+
+  const raw = JSON.parse(result.stdout) as Record<string, unknown>;
+  return parsePRContext(raw);
 }
 
 // --- File Content ---

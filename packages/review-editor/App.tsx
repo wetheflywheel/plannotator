@@ -980,6 +980,7 @@ const ReviewApp: React.FC = () => {
             width={panelResize.width}
             editorAnnotations={editorAnnotations}
             onDeleteEditorAnnotation={deleteEditorAnnotation}
+            prMetadata={prMetadata}
           />
         </div>
 

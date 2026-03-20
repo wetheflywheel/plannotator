@@ -33,6 +33,10 @@
   },
   "dependencies": {
     "@pierre/diffs": "^1.1.0-beta.19",
-    "diff": "^8.0.3"
+    "diff": "^8.0.3",
+    "dompurify": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.2.0"
   }
 }

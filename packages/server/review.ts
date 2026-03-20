@@ -15,7 +15,7 @@ import { getRepoInfo } from "./repo";
 import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
 import { createEditorAnnotationHandler } from "./editor-annotations";
-import { type PRMetadata, fetchPRFileContent } from "./pr";
+import { type PRMetadata, fetchPRFileContent, fetchPRContext } from "./pr";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -191,6 +191,30 @@ export async function startReviewServer(
             } catch (err) {
               const message =
                 err instanceof Error ? err.message : "Failed to switch diff";
+              return Response.json({ error: message }, { status: 500 });
+            }
+          }
+
+          // API: Fetch PR context (comments, checks, merge status) — PR mode only
+          if (url.pathname === "/api/pr-context" && req.method === "GET") {
+            if (!isPRMode) {
+              return Response.json(
+                { error: "Not in PR mode" },
+                { status: 400 },
+              );
+            }
+            try {
+              const ref = {
+                platform: "github" as const,
+                owner: prMetadata!.owner,
+                repo: prMetadata!.repo,
+                number: prMetadata!.number,
+              };
+              const context = await fetchPRContext(ref);
+              return Response.json(context);
+            } catch (err) {
+              const message =
+                err instanceof Error ? err.message : "Failed to fetch PR context";
               return Response.json({ error: message }, { status: 500 });
             }
           }
