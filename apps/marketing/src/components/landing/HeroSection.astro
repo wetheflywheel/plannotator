@@ -168,7 +168,8 @@ import AnnoReplace from './AnnoReplace.astro';
       claude: {
         steps: [
           '/plugin marketplace add backnotprop/plannotator',
-          '/plugin install plannotator@plannotator'
+          '/plugin install plannotator@plannotator',
+          'Restart Claude Code to activate hooks'
         ],
         detail: 'Then run in Claude Code:'
       },
@@ -182,7 +183,8 @@ import AnnoReplace from './AnnoReplace.astro';
       },
       opencode: {
         steps: [
-          '"plugin": ["@plannotator/opencode@latest"]'
+          '"plugin": ["@plannotator/opencode@latest"]',
+          'Restart OpenCode to load the plugin'
         ],
         detail: 'Then add to opencode.json:'
       },
