@@ -288,7 +288,8 @@ describe("ProviderRegistry", () => {
     reg.register(p);
 
     expect(reg.get("test-provider")).toBe(p);
-    expect(reg.getDefault()).toBe(p);
+    expect(reg.getDefault()?.provider).toBe(p);
+    expect(reg.getDefault()?.id).toBe("test-provider");
     expect(reg.list()).toEqual(["test-provider"]);
 
     reg.dispose("test-provider");
@@ -409,6 +410,18 @@ describe("AI endpoints", () => {
     expect(data.providers.length).toBe(2);
     expect(data.providers).toContain("claude-1");
     expect(data.providers).toContain("oc-1");
+  });
+
+  test("capabilities returns instance ID not type name for defaultProvider", async () => {
+    const { reg, endpoints } = setup();
+    reg.register(mockProvider("claude-agent-sdk"), "claude-fast");
+
+    const res = await endpoints["/api/ai/capabilities"](
+      new Request("http://localhost/api/ai/capabilities")
+    );
+    const data = await res.json();
+    // Should return the instance ID "claude-fast", not the type name "claude-agent-sdk"
+    expect(data.defaultProvider).toBe("claude-fast");
   });
 
   test("session creation and query flow", async () => {

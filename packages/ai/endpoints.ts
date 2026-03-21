@@ -78,12 +78,12 @@ export function createAIEndpoints(deps: AIEndpointDeps) {
 
   return {
     "/api/ai/capabilities": async (_req: Request) => {
-      const provider = registry.getDefault();
+      const defaultEntry = registry.getDefault();
       return Response.json({
-        available: !!provider,
+        available: !!defaultEntry,
         providers: registry.list(),
-        defaultProvider: provider?.name ?? null,
-        capabilities: provider?.capabilities ?? null,
+        defaultProvider: defaultEntry?.id ?? null,
+        capabilities: defaultEntry?.provider.capabilities ?? null,
       });
     },
 
@@ -105,7 +105,7 @@ export function createAIEndpoints(deps: AIEndpointDeps) {
       // Resolve provider: by ID, or default
       const provider = providerId
         ? registry.get(providerId)
-        : registry.getDefault();
+        : registry.getDefault()?.provider;
 
       if (!provider) {
         return Response.json(

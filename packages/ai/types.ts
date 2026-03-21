@@ -205,10 +205,6 @@ export interface CreateSessionOptions {
    * Maximum budget in USD for this session.
    */
   maxBudgetUsd?: number;
-  /**
-   * AbortController for the caller to cancel the session externally.
-   */
-  abortController?: AbortController;
 }
 
 /**
@@ -254,10 +250,7 @@ export interface AIProvider {
    *
    * If the provider doesn't support resuming, this should throw.
    */
-  resumeSession(
-    sessionId: string,
-    abortController?: AbortController
-  ): Promise<AISession>;
+  resumeSession(sessionId: string): Promise<AISession>;
 
   /**
    * Clean up any resources held by the provider.

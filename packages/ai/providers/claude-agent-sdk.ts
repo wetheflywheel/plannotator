@@ -17,7 +17,6 @@ import type {
   AIProviderCapabilities,
   AISession,
   AIMessage,
-  AIContext,
   CreateSessionOptions,
   ClaudeAgentSDKConfig,
 } from "../types.ts";
@@ -103,10 +102,7 @@ export class ClaudeAgentSDKProvider implements AIProvider {
     });
   }
 
-  async resumeSession(
-    sessionId: string,
-    abortController?: AbortController
-  ): Promise<AISession> {
+  async resumeSession(sessionId: string): Promise<AISession> {
     return new ClaudeAgentSDKSession({
       ...this.baseConfig(),
       systemPrompt: null,
@@ -123,7 +119,6 @@ export class ClaudeAgentSDKProvider implements AIProvider {
 
   private baseConfig(options?: CreateSessionOptions) {
     return {
-      context: options?.context ?? null,
       model: options?.model ?? this.config.model ?? DEFAULT_MODEL,
       maxTurns: options?.maxTurns ?? DEFAULT_MAX_TURNS,
       maxBudgetUsd: options?.maxBudgetUsd,
@@ -154,7 +149,6 @@ async function getSDKQuery() {
 interface SessionConfig {
   systemPrompt: string | null;
   forkPreamble?: string;
-  context: AIContext | null;
   model: string;
   maxTurns: number;
   maxBudgetUsd?: number;
@@ -175,6 +169,9 @@ class ClaudeAgentSDKSession implements AISession {
   private _placeholderId: string;
   private _resolvedId: string | null = null;
   private _currentAbort: AbortController | null = null;
+  private _firstQuerySent = false;
+  /** Monotonic counter — each query() call gets a unique generation. */
+  private _queryGen = 0;
 
   constructor(config: SessionConfig) {
     this.config = config;
@@ -191,11 +188,17 @@ class ClaudeAgentSDKSession implements AISession {
   }
 
   async *query(prompt: string): AsyncIterable<AIMessage> {
-    // Reject concurrent queries — abort the previous one
-    if (this._isActive && this._currentAbort) {
-      this._currentAbort.abort();
+    // Reject if a query is already in-flight — let the caller decide to queue or abort
+    if (this._isActive) {
+      yield {
+        type: "error",
+        error: "A query is already in progress. Abort the current query before sending a new one.",
+        code: "session_busy",
+      };
+      return;
     }
 
+    const gen = ++this._queryGen;
     this._isActive = true;
     this._currentAbort = new AbortController();
 
@@ -207,10 +210,12 @@ class ClaudeAgentSDKSession implements AISession {
 
       const stream = queryFn({ prompt: queryPrompt, options });
 
+      this._firstQuerySent = true;
+
       for await (const message of stream) {
         const mapped = mapSDKMessage(message);
 
-        // Capture the real session ID from the SDK on first occurrence
+        // Capture the real session ID from the init message
         if (
           !this._resolvedId &&
           "session_id" in message &&
@@ -222,7 +227,9 @@ class ClaudeAgentSDKSession implements AISession {
           this.onIdResolved?.(oldId, this._resolvedId);
         }
 
-        yield mapped;
+        for (const msg of mapped) {
+          yield msg;
+        }
       }
     } catch (err) {
       yield {
@@ -231,8 +238,12 @@ class ClaudeAgentSDKSession implements AISession {
         code: "provider_error",
       };
     } finally {
-      this._isActive = false;
-      this._currentAbort = null;
+      // Only clear state if this is still the active query generation.
+      // Prevents a stale finally block from clobbering a newer query.
+      if (this._queryGen === gen) {
+        this._isActive = false;
+        this._currentAbort = null;
+      }
     }
   }
 
@@ -249,7 +260,7 @@ class ClaudeAgentSDKSession implements AISession {
   // -------------------------------------------------------------------------
 
   private buildQueryPrompt(userPrompt: string): string {
-    if (this.config.forkPreamble && !this._resolvedId) {
+    if (this.config.forkPreamble && !this._firstQuerySent) {
       return `${this.config.forkPreamble}\n\n---\n\nUser question: ${userPrompt}`;
     }
     return userPrompt;
@@ -310,78 +321,94 @@ class ClaudeAgentSDKSession implements AISession {
 // ---------------------------------------------------------------------------
 
 /**
- * Map an SDK message to an AIMessage.
- * Unknown message types are passed through as AIUnknownMessage for transparency.
+ * Map an SDK message to one or more AIMessages.
+ *
+ * An SDK assistant message can contain both text and tool_use content blocks
+ * in a single response. We emit each block as a separate AIMessage so no
+ * content is dropped.
  */
-function mapSDKMessage(msg: Record<string, unknown>): AIMessage {
+function mapSDKMessage(msg: Record<string, unknown>): AIMessage[] {
   const type = msg.type as string;
 
   switch (type) {
     case "assistant": {
       const message = msg.message as Record<string, unknown> | undefined;
-      if (!message) return { type: "unknown", raw: msg };
+      if (!message) return [{ type: "unknown", raw: msg }];
       const content = message.content as Array<Record<string, unknown>>;
-      if (!content) return { type: "unknown", raw: msg };
+      if (!content) return [{ type: "unknown", raw: msg }];
 
+      const messages: AIMessage[] = [];
       const textParts: string[] = [];
+
       for (const block of content) {
         if (block.type === "text" && typeof block.text === "string") {
           textParts.push(block.text);
         } else if (block.type === "tool_use") {
-          return {
+          // Flush accumulated text before the tool_use block
+          if (textParts.length > 0) {
+            messages.push({ type: "text", text: textParts.join("") });
+            textParts.length = 0;
+          }
+          messages.push({
             type: "tool_use",
             toolName: block.name as string,
             toolInput: block.input as Record<string, unknown>,
             toolUseId: block.id as string,
-          };
+          });
         }
       }
+
+      // Flush any remaining text after the last block
       if (textParts.length > 0) {
-        return { type: "text", text: textParts.join("") };
+        messages.push({ type: "text", text: textParts.join("") });
       }
-      return { type: "unknown", raw: msg };
+
+      return messages.length > 0 ? messages : [{ type: "unknown", raw: msg }];
     }
 
     case "stream_event": {
       const event = msg.event as Record<string, unknown> | undefined;
-      if (!event) return { type: "unknown", raw: msg };
+      if (!event) return [{ type: "unknown", raw: msg }];
       const eventType = event.type as string;
 
       if (eventType === "content_block_delta") {
         const delta = event.delta as Record<string, unknown>;
         if (delta?.type === "text_delta" && typeof delta.text === "string") {
-          return { type: "text_delta", delta: delta.text };
+          return [{ type: "text_delta", delta: delta.text }];
         }
       }
-      return { type: "unknown", raw: msg };
+      return [{ type: "unknown", raw: msg }];
     }
 
-    case "tool_result": {
-      // Tool results from Read, Glob, Grep, WebSearch etc.
-      return {
-        type: "tool_result",
-        toolUseId: (msg.tool_use_id as string) ?? "",
-        result: typeof msg.content === "string"
-          ? msg.content
-          : JSON.stringify(msg.content ?? ""),
-      };
+    case "user": {
+      // SDK wraps tool results in SDKUserMessage (type: "user")
+      if (msg.tool_use_result != null) {
+        return [{
+          type: "tool_result",
+          toolUseId: "",
+          result: typeof msg.tool_use_result === "string"
+            ? msg.tool_use_result
+            : JSON.stringify(msg.tool_use_result),
+        }];
+      }
+      return [{ type: "unknown", raw: msg }];
     }
 
     case "result": {
       const sessionId = (msg.session_id as string) ?? "";
       const subtype = msg.subtype as string;
-      return {
+      return [{
         type: "result",
         sessionId,
         success: subtype === "success",
         result: (msg.result as string) ?? undefined,
         costUsd: msg.total_cost_usd as number | undefined,
         turns: msg.num_turns as number | undefined,
-      };
+      }];
     }
 
     default:
-      return { type: "unknown", raw: msg };
+      return [{ type: "unknown", raw: msg }];
   }
 }
 

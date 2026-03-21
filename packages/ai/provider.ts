@@ -63,9 +63,10 @@ export class ProviderRegistry {
   }
 
   /** Get the first registered provider (convenience for single-provider setups). */
-  getDefault(): AIProvider | undefined {
-    const first = this.instances.values().next();
-    return first.done ? undefined : first.value;
+  getDefault(): { id: string; provider: AIProvider } | undefined {
+    const first = this.instances.entries().next();
+    if (first.done) return undefined;
+    return { id: first.value[0], provider: first.value[1] };
   }
 
   /** Get all instances of a given provider type (by provider.name). */
