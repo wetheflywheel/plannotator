@@ -118,6 +118,9 @@ export async function startPlannotatorServer(
   // Generate slug for potential saving (actual save happens on decision)
   const slug = generateSlug(plan);
 
+  // Lazy cache for archive plan list (loaded on first request, held for session)
+  let cachedArchivePlans: ReturnType<typeof listArchivedPlans> | null = null;
+
   // Detect repo info (cached for this session)
   const repoInfo = await getRepoInfo();
 
@@ -192,8 +195,10 @@ export async function startPlannotatorServer(
           }
 
           // API: List archived plans (from ~/.plannotator/plans/)
+          // Cached for session lifetime — new plans won't appear during a single review
           if (url.pathname === "/api/archive/plans" && req.method === "GET") {
-            return Response.json({ plans: listArchivedPlans() });
+            if (!cachedArchivePlans) cachedArchivePlans = listArchivedPlans();
+            return Response.json({ plans: cachedArchivePlans });
           }
 
           // API: Get a specific archived plan

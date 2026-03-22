@@ -68,7 +68,6 @@ interface ViewerProps {
   maxWidth?: number;
   /** Label for the copy button (default: "Copy plan") */
   copyLabel?: string;
-  /** Archive metadata badges (shown in archive mode and when viewing archived plans) */
   archiveInfo?: { status: 'approved' | 'denied' | 'unknown'; timestamp: string; title: string } | null;
 }
 

@@ -465,7 +465,7 @@ if (args[0] === "sessions") {
     pid: process.pid,
     port: server.port,
     url: server.url,
-    mode: "archive" as any,
+    mode: "archive",
     project: archiveProject,
     startedAt: new Date().toISOString(),
     label: `archive-${archiveProject}`,

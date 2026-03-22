@@ -3,7 +3,9 @@ import type { ResizeHandleProps as BaseProps } from '../hooks/useResizablePanel'
 
 interface Props extends BaseProps {
   className?: string;
-  /** Which side of the content the handle is on — extends touch area away from content */
+  /** When set, touch area extends rightward only to avoid covering adjacent scrollbars.
+   *  Both 'left' and 'right' produce the same behavior — scrollbars sit on the right
+   *  edge of left-adjacent panels, so the handle must never extend leftward. */
   side?: 'left' | 'right';
 }
 

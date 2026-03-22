@@ -48,6 +48,7 @@ import { useEditorAnnotations } from '@plannotator/ui/hooks/useEditorAnnotations
 import { isVaultBrowserEnabled } from '@plannotator/ui/utils/obsidian';
 import { SidebarTabs } from '@plannotator/ui/components/sidebar/SidebarTabs';
 import { SidebarContainer } from '@plannotator/ui/components/sidebar/SidebarContainer';
+import type { ArchivedPlan } from '@plannotator/ui/components/sidebar/ArchiveBrowser';
 import { PlanDiffViewer } from '@plannotator/ui/components/plan-diff/PlanDiffViewer';
 import type { PlanDiffMode } from '@plannotator/ui/components/plan-diff/PlanDiffModeSwitcher';
 import { DEMO_PLAN_CONTENT } from './demoPlan';
@@ -85,9 +86,10 @@ const App: React.FC = () => {
   const [annotateMode, setAnnotateMode] = useState(false);
   const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | null>(null);
   const [archiveMode, setArchiveMode] = useState(false);
-  const [archivePlans, setArchivePlans] = useState<import('@plannotator/ui/components/sidebar/ArchiveBrowser').ArchivedPlan[]>([]);
+  const [archivePlans, setArchivePlans] = useState<ArchivedPlan[]>([]);
   const [selectedArchiveFile, setSelectedArchiveFile] = useState<string | null>(null);
   const [isLoadingArchive, setIsLoadingArchive] = useState(false);
+  const hasFetchedArchive = useRef(false);
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -334,7 +336,7 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last' | 'archive'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: any[] }) => {
+      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last' | 'archive'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[] }) => {
         if (data.plan) setMarkdown(data.plan);
         setIsApiMode(true);
         if (data.mode === 'annotate' || data.mode === 'annotate-last') {
@@ -686,14 +688,17 @@ const App: React.FC = () => {
 
   // Archive: lazy-fetch plan list for in-session mode
   const fetchArchivePlans = async () => {
-    if (archivePlans.length > 0 || isLoadingArchive) return;
+    if (hasFetchedArchive.current || isLoadingArchive) return;
+    hasFetchedArchive.current = true;
     setIsLoadingArchive(true);
     try {
       const res = await fetch('/api/archive/plans');
       if (!res.ok) return;
-      const data = await res.json() as { plans: any[] };
+      const data = await res.json() as { plans: ArchivedPlan[] };
       setArchivePlans(data.plans);
-    } catch { /* ignore */ } finally {
+    } catch {
+      hasFetchedArchive.current = false; // allow retry on error
+    } finally {
       setIsLoadingArchive(false);
     }
   };
