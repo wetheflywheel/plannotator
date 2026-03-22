@@ -16,6 +16,7 @@ import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraft
 import { contentHash, deleteDraft } from "./draft";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { type PRMetadata, type PRReviewFileComment, fetchPRFileContent, fetchPRContext, submitPRReview, getGhUser } from "./pr";
+import { createAIEndpoints, ProviderRegistry, SessionManager, createProvider, type AIEndpoints } from "@plannotator/ai";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -92,6 +93,26 @@ export async function startReviewServer(
   const isPRMode = !!prMetadata;
   const draftKey = contentHash(options.rawPatch);
   const editorAnnotations = createEditorAnnotationHandler();
+
+  // AI provider setup (graceful — AI features degrade if SDK unavailable)
+  const aiRegistry = new ProviderRegistry();
+  const aiSessionManager = new SessionManager();
+  let aiEndpoints: AIEndpoints | null = null;
+  try {
+    // Side-effect import registers the factory
+    await import("@plannotator/ai/providers/claude-agent-sdk");
+    // Resolve claude binary path — required for compiled binaries
+    const claudePath = Bun.which("claude");
+    const provider = await createProvider({
+      type: "claude-agent-sdk",
+      cwd: process.cwd(),
+      ...(claudePath && { claudeExecutablePath: claudePath }),
+    });
+    aiRegistry.register(provider);
+    aiEndpoints = createAIEndpoints({ registry: aiRegistry, sessionManager: aiSessionManager });
+  } catch {
+    // SDK not available — AI features won't be offered
+  }
 
   // Mutable state for diff switching
   let currentPatch = options.rawPatch;
@@ -384,6 +405,12 @@ export async function startReviewServer(
             }
           }
 
+          // AI endpoints
+          if (aiEndpoints && url.pathname.startsWith("/api/ai/")) {
+            const handler = aiEndpoints[url.pathname as keyof AIEndpoints];
+            if (handler) return handler(req);
+          }
+
           // Favicon
           if (url.pathname === "/favicon.svg") return handleFavicon();
 
@@ -429,6 +456,10 @@ export async function startReviewServer(
     url: serverUrl,
     isRemote,
     waitForDecision: () => decisionPromise,
-    stop: () => server.stop(),
+    stop: () => {
+      aiSessionManager.disposeAll();
+      aiRegistry.disposeAll();
+      server.stop();
+    },
   };
 }

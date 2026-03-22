@@ -484,3 +484,155 @@ diffs-container {
 .slide-in-from-bottom-2 {
   animation-name: slide-in-from-bottom-2;
 }
+
+/* AI Chat — toolbar divider, bubbles, line references, streaming cursor */
+
+.ai-ask-divider {
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem;
+  opacity: 0.5;
+}
+
+.ai-question-bubble {
+  background: oklch(from var(--primary) l c h / 0.05);
+  border: 1px solid oklch(from var(--primary) l c h / 0.12);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.625rem;
+}
+
+.ai-response-bubble {
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.625rem;
+}
+
+.ai-line-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 150ms, background 150ms;
+  border: none;
+}
+
+.ai-line-ref:hover {
+  background: oklch(from var(--primary) l c h / 0.1);
+  color: var(--primary);
+}
+
+.ai-streaming-cursor {
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.75rem;
+  background: var(--primary);
+  border-radius: 1px;
+  animation: ai-blink 1s step-end infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes ai-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.ai-preview-link {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: oklch(from var(--primary) l c h / 0.05);
+  border: 1px solid oklch(from var(--primary) l c h / 0.12);
+  font-size: 0.625rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms;
+  text-align: left;
+}
+
+.ai-preview-link:hover {
+  background: oklch(from var(--primary) l c h / 0.1);
+  border-color: oklch(from var(--primary) l c h / 0.2);
+}
+
+/* AI inline markers in diff */
+.ai-marker {
+  color: var(--muted-foreground);
+  border-left: 2px solid oklch(from var(--primary) l c h / 0.3);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  transition: background 0ms, border-color 0ms;
+}
+
+.ai-marker:hover {
+  background: oklch(from var(--primary) l c h / 0.08);
+  border-left-color: var(--primary);
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.ai-marker-answered .ai-marker-icon {
+  color: var(--primary);
+}
+
+/* AI sidebar file groups */
+.ai-file-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  transition: color 150ms ease;
+}
+
+.ai-file-group-header:hover {
+  color: var(--foreground);
+}
+
+.ai-file-group-highlight {
+  animation: ai-file-flash 1.2s ease-out;
+}
+
+@keyframes ai-file-flash {
+  0% { background: transparent; }
+  10% { background: oklch(from var(--primary) l c h / 0.15); }
+  30% { background: transparent; }
+  45% { background: oklch(from var(--primary) l c h / 0.12); }
+  65% { background: transparent; }
+  100% { background: transparent; }
+}
+
+.ai-general-input {
+  border-top: 1px solid var(--border);
+  padding: 0.5rem;
+}
+
+.ai-general-input textarea {
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.6875rem;
+  background: var(--muted);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  resize: none;
+  color: var(--foreground);
+}
+
+.ai-general-input textarea:focus {
+  outline: none;
+  border-color: oklch(from var(--primary) l c h / 0.5);
+}

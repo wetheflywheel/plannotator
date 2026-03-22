@@ -24,7 +24,8 @@
     "*.ts"
   ],
   "dependencies": {
-    "@plannotator/shared": "workspace:*"
+    "@plannotator/shared": "workspace:*",
+    "@plannotator/ai": "workspace:*"
   },
   "peerDependencies": {
     "bun": ">=1.0.0"

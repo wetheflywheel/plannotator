@@ -288,4 +288,10 @@ export interface ClaudeAgentSDKConfig extends AIProviderConfig {
    * Defaults to "plan" (read-only, no execution).
    */
   permissionMode?: "default" | "plan" | "bypassPermissions";
+  /**
+   * Explicit path to the claude CLI binary.
+   * Required when running inside a compiled binary where PATH resolution
+   * doesn't work the same way (e.g., bun build --compile).
+   */
+  claudeExecutablePath?: string;
 }

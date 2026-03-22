@@ -52,6 +52,7 @@ interface ClaudeSDKQueryOptions {
   forkSession?: boolean;
   permissionMode?: string;
   allowDangerouslySkipPermissions?: boolean;
+  pathToClaudeCodeExecutable?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +124,8 @@ export class ClaudeAgentSDKProvider implements AIProvider {
       maxTurns: options?.maxTurns ?? DEFAULT_MAX_TURNS,
       maxBudgetUsd: options?.maxBudgetUsd,
       allowedTools: this.config.allowedTools ?? DEFAULT_ALLOWED_TOOLS,
-      permissionMode: this.config.permissionMode ?? "plan",
+      permissionMode: this.config.permissionMode ?? "default",
+      claudeExecutablePath: this.config.claudeExecutablePath,
     };
   }
 }
@@ -158,6 +160,7 @@ interface SessionConfig {
   parentSessionId: string | null;
   forkFromSession: string | null;
   resumeSessionId?: string;
+  claudeExecutablePath?: string;
 }
 
 class ClaudeAgentSDKSession implements AISession {
@@ -275,6 +278,9 @@ class ClaudeAgentSDKSession implements AISession {
       abortController: this._currentAbort!,
       includePartialMessages: true,
       persistSession: true,
+      ...(this.config.claudeExecutablePath && {
+        pathToClaudeCodeExecutable: this.config.claudeExecutablePath,
+      }),
     };
 
     if (this.config.maxBudgetUsd) {

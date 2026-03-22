@@ -9,7 +9,10 @@ import { usePRContext } from '../hooks/usePRContext';
 import { PRSummaryTab } from './PRSummaryTab';
 import { PRCommentsTab } from './PRCommentsTab';
 import { PRChecksTab } from './PRChecksTab';
+import { AITab } from './AITab';
+import { SparklesIcon } from './SparklesIcon';
 import type { PRMetadata } from '@plannotator/shared/pr-provider';
+import type { AIMessage } from '../hooks/useAIChat';
 
 interface DiffFile {
   path: string;
@@ -17,7 +20,7 @@ interface DiffFile {
   deletions: number;
 }
 
-type ReviewPanelTab = 'annotations' | 'summary' | 'comments' | 'checks';
+type ReviewPanelTab = 'annotations' | 'ai' | 'summary' | 'comments' | 'checks';
 
 interface ReviewPanelProps {
   isOpen: boolean;
@@ -32,6 +35,17 @@ interface ReviewPanelProps {
   editorAnnotations?: EditorAnnotation[];
   onDeleteEditorAnnotation?: (id: string) => void;
   prMetadata?: PRMetadata | null;
+  // AI props
+  aiAvailable?: boolean;
+  aiMessages?: AIMessage[];
+  isAICreatingSession?: boolean;
+  isAIStreaming?: boolean;
+  onScrollToAILines?: (filePath: string, lineStart: number, lineEnd: number, side: 'old' | 'new') => void;
+  activeTabOverride?: ReviewPanelTab;
+  onTabChange?: (tab: ReviewPanelTab) => void;
+  activeFilePath?: string;
+  scrollToQuestionId?: string | null;
+  onAskGeneral?: (question: string) => void;
 }
 
 const SuggestionPreview: React.FC<{ code: string; originalCode?: string; language?: string }> = ({ code, originalCode, language }) => {
@@ -131,18 +145,34 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
   editorAnnotations,
   onDeleteEditorAnnotation,
   prMetadata,
+  aiAvailable = false,
+  aiMessages = [],
+  isAICreatingSession = false,
+  isAIStreaming = false,
+  onScrollToAILines,
+  activeTabOverride,
+  onTabChange,
+  activeFilePath,
+  scrollToQuestionId,
+  onAskGeneral,
 }) => {
   const totalCount = annotations.length + (editorAnnotations?.length ?? 0);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<ReviewPanelTab>('annotations');
   const hasPRTabs = !!prMetadata;
 
+  // Allow parent to control the active tab (e.g., switch to AI tab on ask)
+  useEffect(() => {
+    if (activeTabOverride) setActiveTab(activeTabOverride);
+  }, [activeTabOverride]);
+
   const { prContext, isLoading: isPRContextLoading, error: prContextError, fetchContext } = usePRContext(prMetadata ?? null);
 
   // Fetch PR context on first click of a PR tab
   const handleTabChange = (tab: ReviewPanelTab) => {
     setActiveTab(tab);
-    if (tab !== 'annotations' && !prContext && !isPRContextLoading) {
+    onTabChange?.(tab);
+    if (tab !== 'annotations' && tab !== 'ai' && !prContext && !isPRContextLoading) {
       fetchContext();
     }
   };
@@ -191,36 +221,72 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
         <div className="p-3 border-b border-border/50">
           <div className="flex items-center gap-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {activeTab === 'annotations' ? 'Annotations' : activeTab === 'summary' ? 'Summary' : activeTab === 'comments' ? 'Comments' : 'Checks'}
+              {activeTab === 'annotations' ? 'Annotations' : activeTab === 'ai' ? 'AI' : activeTab === 'summary' ? 'Summary' : activeTab === 'comments' ? 'Comments' : 'Checks'}
             </h2>
             {activeTab === 'annotations' && totalCount > 0 && (
               <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
                 {totalCount}
               </span>
             )}
-
-            {/* Tab buttons inline in header (PR mode only) */}
-            {hasPRTabs && (
-              <div className="flex items-center gap-0.5 ml-auto">
-                {PR_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => handleTabChange(tab.id)}
-                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                      activeTab === tab.id
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                    }`}
-                    title={tab.label}
-                  >
-                    {tab.icon}
-                    {tab.id === 'checks' && checksStatusDot && (
-                      <span className={`w-1.5 h-1.5 rounded-full ${checksStatusDot}`} />
-                    )}
-                  </button>
-                ))}
-              </div>
+            {activeTab === 'ai' && aiMessages.length > 0 && (
+              <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                {aiMessages.length}
+              </span>
             )}
+
+            <div className="flex items-center gap-0.5 ml-auto">
+              {/* Annotations tab (always visible) */}
+              <button
+                onClick={() => handleTabChange('annotations')}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                  activeTab === 'annotations'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                }`}
+                title="Annotations"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                </svg>
+              </button>
+
+              {/* AI tab (visible when AI is available) */}
+              {aiAvailable && (
+                <button
+                  onClick={() => handleTabChange('ai')}
+                  className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    activeTab === 'ai'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  }`}
+                  title="AI Chat"
+                >
+                  <SparklesIcon className="w-3.5 h-3.5" />
+                  {aiMessages.length > 0 && activeTab !== 'ai' && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-primary" />
+                  )}
+                </button>
+              )}
+
+              {/* PR tabs (only in PR mode) */}
+              {hasPRTabs && PR_TABS.filter(t => t.id !== 'annotations').map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabChange(tab.id)}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    activeTab === tab.id
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  }`}
+                  title={tab.label}
+                >
+                  {tab.icon}
+                  {tab.id === 'checks' && checksStatusDot && (
+                    <span className={`w-1.5 h-1.5 rounded-full ${checksStatusDot}`} />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -337,8 +403,21 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
             </div>
           )}
 
+          {/* AI tab */}
+          {activeTab === 'ai' && (
+            <AITab
+              messages={aiMessages}
+              isCreatingSession={isAICreatingSession}
+              isStreaming={isAIStreaming}
+              activeFilePath={activeFilePath}
+              scrollToQuestionId={scrollToQuestionId}
+              onScrollToLines={onScrollToAILines ?? (() => {})}
+              onAskGeneral={onAskGeneral}
+            />
+          )}
+
           {/* PR tabs — loading / error / content */}
-          {activeTab !== 'annotations' && (
+          {activeTab !== 'annotations' && activeTab !== 'ai' && (
             <>
               {isPRContextLoading && (
                 <div className="flex items-center justify-center h-40">

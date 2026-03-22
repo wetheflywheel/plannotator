@@ -15,6 +15,7 @@ import { CodeAnnotation, CodeAnnotationType, SelectedLineRange } from '@plannota
 import { useResizablePanel } from '@plannotator/ui/hooks/useResizablePanel';
 import { useCodeAnnotationDraft } from '@plannotator/ui/hooks/useCodeAnnotationDraft';
 import { useGitAdd } from './hooks/useGitAdd';
+import { useAIChat } from './hooks/useAIChat';
 import { isTypingTarget, useReviewSearch } from './hooks/useReviewSearch';
 import { useEditorAnnotations } from '@plannotator/ui/hooks/useEditorAnnotations';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
@@ -180,6 +181,90 @@ const ReviewApp: React.FC = () => {
 
   // VS Code editor annotations (only polls when inside VS Code webview)
   const { editorAnnotations, deleteEditorAnnotation } = useEditorAnnotations();
+
+  // AI Chat
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [reviewPanelTabOverride, setReviewPanelTabOverride] = useState<'ai' | undefined>(undefined);
+  const aiChat = useAIChat({ patch: diffData?.rawPatch ?? '' });
+
+  // Check AI capabilities on mount
+  useEffect(() => {
+    fetch('/api/ai/capabilities')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.available) setAiAvailable(true); })
+      .catch(() => {});
+  }, []);
+
+  const handleAskAI = useCallback((question: string) => {
+    if (!pendingSelection || !files[activeFileIndex]) return;
+    const lineStart = Math.min(pendingSelection.start, pendingSelection.end);
+    const lineEnd = Math.max(pendingSelection.start, pendingSelection.end);
+
+    aiChat.ask({
+      prompt: question,
+      filePath: files[activeFileIndex].path,
+      lineStart,
+      lineEnd,
+      side: pendingSelection.side === 'additions' ? 'new' : 'old',
+    });
+  }, [pendingSelection, files, activeFileIndex, aiChat]);
+
+  const handleViewAIResponse = useCallback(() => {
+    setReviewPanelTabOverride('ai');
+    setIsPanelOpen(true);
+  }, []);
+
+  const handleScrollToAILines = useCallback((filePath: string, lineStart: number, lineEnd: number, side: 'old' | 'new') => {
+    // Switch to the file containing the referenced lines
+    const fileIndex = files.findIndex(f => f.path === filePath);
+    if (fileIndex !== -1 && fileIndex !== activeFileIndex) {
+      setPendingSelection(null);
+      setActiveFileIndex(fileIndex);
+    }
+    // Set a selection to highlight the lines
+    setPendingSelection({
+      start: lineStart,
+      end: lineEnd,
+      side: side === 'new' ? 'additions' : 'deletions',
+    });
+  }, [files, activeFileIndex]);
+
+  // AI messages for the current file (for inline markers)
+  const aiMessagesForCurrentFile = useMemo(() => {
+    const activeFile = files[activeFileIndex];
+    if (!activeFile) return [];
+    return aiChat.messages.filter(m => m.question.filePath === activeFile.path);
+  }, [aiChat.messages, files, activeFileIndex]);
+
+  // AI messages overlapping the current selection (for toolbar history)
+  const aiHistoryForSelection = useMemo(() => {
+    if (!pendingSelection || !files[activeFileIndex]) return [];
+    const filePath = files[activeFileIndex].path;
+    const selStart = Math.min(pendingSelection.start, pendingSelection.end);
+    const selEnd = Math.max(pendingSelection.start, pendingSelection.end);
+    const side = pendingSelection.side === 'additions' ? 'new' : 'old';
+    return aiChat.messages.filter(m => {
+      const q = m.question;
+      return q.filePath === filePath && q.side === side &&
+        q.lineStart != null && q.lineEnd != null &&
+        q.lineStart <= selEnd && q.lineEnd >= selStart;
+    });
+  }, [pendingSelection, files, activeFileIndex, aiChat.messages]);
+
+  // Click AI marker in diff → scroll sidebar to that Q&A
+  const [scrollToQuestionId, setScrollToQuestionId] = useState<string | null>(null);
+  const handleClickAIMarker = useCallback((questionId: string) => {
+    setScrollToQuestionId(questionId);
+    setReviewPanelTabOverride('ai');
+    setIsPanelOpen(true);
+    // Clear after a tick so it can re-trigger for the same question
+    setTimeout(() => setScrollToQuestionId(null), 500);
+  }, []);
+
+  // General AI question from sidebar input
+  const handleAskGeneral = useCallback((question: string) => {
+    aiChat.ask({ prompt: question });
+  }, [aiChat]);
 
   // Resizable panels
   const panelResize = useResizablePanel({ storageKey: 'plannotator-review-panel-width' });
@@ -1233,6 +1318,13 @@ const ReviewApp: React.FC = () => {
                 searchMatches={activeFileSearchMatches}
                 activeSearchMatchId={activeSearchMatchId}
                 activeSearchMatch={activeSearchMatch?.filePath === activeFile.path ? activeSearchMatch : null}
+                aiAvailable={aiAvailable}
+                onAskAI={handleAskAI}
+                isAILoading={aiChat.isCreatingSession || aiChat.isStreaming}
+                onViewAIResponse={handleViewAIResponse}
+                aiMessages={aiMessagesForCurrentFile}
+                onClickAIMarker={handleClickAIMarker}
+                aiHistoryMessages={aiHistoryForSelection}
               />
             ) : (
               <div className="h-full flex items-center justify-center">
@@ -1294,6 +1386,16 @@ const ReviewApp: React.FC = () => {
             editorAnnotations={editorAnnotations}
             onDeleteEditorAnnotation={deleteEditorAnnotation}
             prMetadata={prMetadata}
+            aiAvailable={aiAvailable}
+            aiMessages={aiChat.messages}
+            isAICreatingSession={aiChat.isCreatingSession}
+            isAIStreaming={aiChat.isStreaming}
+            onScrollToAILines={handleScrollToAILines}
+            activeTabOverride={reviewPanelTabOverride}
+            onTabChange={() => setReviewPanelTabOverride(undefined)}
+            activeFilePath={files[activeFileIndex]?.path}
+            scrollToQuestionId={scrollToQuestionId}
+            onAskGeneral={handleAskGeneral}
           />
         </div>
 
