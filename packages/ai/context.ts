@@ -110,7 +110,7 @@ const MAX_DIFF_CHARS = 40_000;
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
-  return text.slice(0, max) + "\n\n... [truncated for context window]";
+  return `${text.slice(0, max)}\n\n... [truncated for context window]`;
 }
 
 function buildPlanReviewPrompt(

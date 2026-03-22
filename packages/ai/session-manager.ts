@@ -13,7 +13,7 @@
  * handles its own persistence via the agent SDK).
  */
 
-import type { AISession, AIContext, AIContextMode } from "./types.ts";
+import type { AISession, AIContextMode } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Types

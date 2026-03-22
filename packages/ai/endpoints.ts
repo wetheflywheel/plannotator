@@ -15,7 +15,7 @@
 
 import type { AIContext, AIMessage, CreateSessionOptions } from "./types.ts";
 import type { ProviderRegistry } from "./provider.ts";
-import { SessionManager } from "./session-manager.ts";
+import type { SessionManager } from "./session-manager.ts";
 
 // ---------------------------------------------------------------------------
 // Types for request/response
