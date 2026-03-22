@@ -84,6 +84,10 @@ const App: React.FC = () => {
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | null>(null);
+  const [archiveMode, setArchiveMode] = useState(false);
+  const [archivePlans, setArchivePlans] = useState<import('@plannotator/ui/components/sidebar/ArchiveBrowser').ArchivedPlan[]>([]);
+  const [selectedArchiveFile, setSelectedArchiveFile] = useState<string | null>(null);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -330,13 +334,23 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string } }) => {
+      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last' | 'archive'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: any[] }) => {
         if (data.plan) setMarkdown(data.plan);
         setIsApiMode(true);
         if (data.mode === 'annotate' || data.mode === 'annotate-last') {
           setAnnotateMode(true);
         }
-        if (data.mode) {
+        if (data.mode === 'archive') {
+          setArchiveMode(true);
+          if (data.archivePlans) {
+            setArchivePlans(data.archivePlans);
+            if (data.archivePlans.length > 0) {
+              setSelectedArchiveFile(data.archivePlans[0].filename);
+            }
+          }
+          sidebar.open('archive');
+        }
+        if (data.mode && data.mode !== 'archive') {
           setAnnotateSource(data.mode === 'annotate-last' ? 'message' : 'file');
         }
         if (data.filePath) {
@@ -396,7 +410,7 @@ const App: React.FC = () => {
   }, [markdown]);
 
   useEffect(() => {
-    if (!isApiMode || !markdown || isSharedSession || annotateMode) return;
+    if (!isApiMode || !markdown || isSharedSession || annotateMode || archiveMode) return;
     if (autoSaveAttempted.current) return;
 
     const body: { obsidian?: object; bear?: object; octarine?: object } = {};
@@ -646,6 +660,56 @@ const App: React.FC = () => {
     } catch {
       setIsSubmitting(false);
     }
+  };
+
+  // Archive: select a plan to view
+  const handleArchiveSelect = async (filename: string) => {
+    try {
+      const res = await fetch(`/api/archive/plan?filename=${encodeURIComponent(filename)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { markdown: string; filepath: string };
+
+      if (archiveMode) {
+        // Standalone: direct swap
+        viewerRef.current?.clearAllHighlights();
+        setMarkdown(data.markdown);
+        setAnnotations([]);
+        setSelectedAnnotationId(null);
+        setSelectedArchiveFile(filename);
+      } else {
+        // In-session: use linked doc overlay
+        linkedDocHook.open(filename, (f) => `/api/archive/plan?filename=${encodeURIComponent(f)}`);
+        setSelectedArchiveFile(filename);
+      }
+    } catch { /* ignore */ }
+  };
+
+  // Archive: lazy-fetch plan list for in-session mode
+  const fetchArchivePlans = async () => {
+    if (archivePlans.length > 0 || isLoadingArchive) return;
+    setIsLoadingArchive(true);
+    try {
+      const res = await fetch('/api/archive/plans');
+      if (!res.ok) return;
+      const data = await res.json() as { plans: any[] };
+      setArchivePlans(data.plans);
+    } catch { /* ignore */ } finally {
+      setIsLoadingArchive(false);
+    }
+  };
+
+  // Archive: Done handler
+  const handleArchiveDone = async () => {
+    try {
+      await fetch('/api/done', { method: 'POST' });
+      setSubmitted('approved');
+    } catch { /* ignore */ }
+  };
+
+  // Archive: Copy plan content (without annotations section)
+  const handleArchiveCopy = () => {
+    const planOnly = markdown.split('\n\n---\n\n')[0];
+    navigator.clipboard.writeText(planOnly);
   };
 
   // Global keyboard shortcuts (Cmd/Ctrl+Enter to submit)
@@ -916,6 +980,12 @@ const App: React.FC = () => {
     return widths[uiPrefs.planWidth] ?? 832;
   }, [uiPrefs.planWidth]);
 
+  const currentArchiveInfo = useMemo(() => {
+    if (!selectedArchiveFile) return null;
+    const plan = archivePlans.find(p => p.filename === selectedArchiveFile);
+    return plan ? { status: plan.status, timestamp: plan.timestamp, title: plan.title } : null;
+  }, [selectedArchiveFile, archivePlans]);
+
   return (
     <ThemeProvider defaultTheme="dark">
       <div className="h-screen flex flex-col bg-background overflow-hidden">
@@ -952,7 +1022,29 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
-            {isApiMode && !linkedDocHook.isActive && (
+            {isApiMode && !linkedDocHook.isActive && archiveMode && (
+              <>
+                <button
+                  onClick={handleArchiveCopy}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium transition-all bg-muted text-foreground hover:bg-muted/80 border border-border"
+                  title="Copy plan content"
+                >
+                  <span className="hidden md:inline">Copy</span>
+                  <svg className="w-4 h-4 md:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={handleArchiveDone}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium transition-all bg-success text-success-foreground hover:opacity-90"
+                  title="Close archive"
+                >
+                  Done
+                </button>
+              </>
+            )}
+
+            {isApiMode && !linkedDocHook.isActive && !archiveMode && (
               <>
                 <button
                   onClick={() => {
@@ -1208,7 +1300,10 @@ const App: React.FC = () => {
             <>
               <SidebarContainer
                 activeTab={sidebar.activeTab}
-                onTabChange={sidebar.toggleTab}
+                onTabChange={(tab) => {
+                  sidebar.toggleTab(tab);
+                  if (tab === 'archive' && !archiveMode) fetchArchivePlans();
+                }}
                 onClose={sidebar.close}
                 width={tocResize.width}
                 blocks={blocks}
@@ -1217,14 +1312,13 @@ const App: React.FC = () => {
                 onTocNavigate={handleTocNavigate}
                 linkedDocFilepath={linkedDocHook.filepath}
                 onLinkedDocBack={linkedDocHook.isActive ? handleLinkedDocBack : undefined}
-                showVaultTab={showVaultTab}
+                showVaultTab={showVaultTab && !archiveMode}
                 vaultPath={vaultPath}
                 vaultBrowser={vaultBrowser}
                 onVaultSelectFile={handleVaultFileSelect}
                 onVaultFetchTree={handleVaultFetchTree}
                 versionInfo={versionInfo}
                 versions={planDiff.versions}
-                projectPlans={planDiff.projectPlans}
                 selectedBaseVersion={planDiff.diffBaseVersion}
                 onSelectBaseVersion={planDiff.selectBaseVersion}
                 isPlanDiffActive={isPlanDiffActive}
@@ -1234,7 +1328,11 @@ const App: React.FC = () => {
                 isSelectingVersion={planDiff.isSelectingVersion}
                 fetchingVersion={planDiff.fetchingVersion}
                 onFetchVersions={planDiff.fetchVersions}
-                onFetchProjectPlans={planDiff.fetchProjectPlans}
+                showArchiveTab={isApiMode}
+                archivePlans={archivePlans}
+                selectedArchiveFile={selectedArchiveFile}
+                onArchiveSelect={handleArchiveSelect}
+                isLoadingArchive={isLoadingArchive}
               />
               <ResizeHandle {...tocResize.handleProps} className="hidden lg:block" side="left" />
             </>
@@ -1253,8 +1351,8 @@ const App: React.FC = () => {
               showCancel
             />
             <div className="min-h-full flex flex-col items-center px-2 py-3 md:px-10 md:py-8 xl:px-16 relative z-10">
-              {/* Annotation Toolstrip (hidden during plan diff) */}
-              {!isPlanDiffActive && (
+              {/* Annotation Toolstrip (hidden during plan diff and archive mode) */}
+              {!isPlanDiffActive && !archiveMode && (
                 <div className="w-full mb-3 md:mb-4 flex items-center justify-start" style={{ maxWidth: planMaxWidth }}>
                   <AnnotationToolstrip
                     inputMethod={inputMethod}
@@ -1317,6 +1415,7 @@ const App: React.FC = () => {
                   linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: handleLinkedDocBack, label: vaultBrowser.activeFile ? 'Vault File' : undefined } : null}
                   imageBaseDir={imageBaseDir}
                   copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' ? 'Copy file' : undefined}
+                  archiveInfo={currentArchiveInfo}
                 />
               </div>
             </div>
@@ -1454,13 +1553,15 @@ const App: React.FC = () => {
         {/* Completion overlay - shown after approve/deny */}
         <CompletionOverlay
           submitted={submitted}
-          title={submitted === 'approved' ? 'Plan Approved' : annotateMode ? 'Annotations Sent' : 'Feedback Sent'}
+          title={archiveMode ? 'Archive Closed' : submitted === 'approved' ? 'Plan Approved' : annotateMode ? 'Annotations Sent' : 'Feedback Sent'}
           subtitle={
-            submitted === 'approved'
-              ? `${agentName} will proceed with the implementation.`
-              : annotateMode
-                ? `${agentName} will address your annotations on the ${annotateSource === 'message' ? 'message' : 'file'}.`
-                : `${agentName} will revise the plan based on your annotations.`
+            archiveMode
+              ? 'You can reopen with plannotator archive.'
+              : submitted === 'approved'
+                ? `${agentName} will proceed with the implementation.`
+                : annotateMode
+                  ? `${agentName} will address your annotations on the ${annotateSource === 'message' ? 'message' : 'file'}.`
+                  : `${agentName} will revise the plan based on your annotations.`
           }
           agentLabel={agentName}
         />

@@ -31,7 +31,8 @@ import {
   getPlanVersionPath,
   getVersionCount,
   listVersions,
-  listProjectPlans,
+  listArchivedPlans,
+  readArchivedPlan,
 } from "./storage";
 import { getRepoInfo } from "./repo";
 import { detectProjectName } from "./project";
@@ -190,12 +191,22 @@ export async function startPlannotatorServer(
             });
           }
 
-          // API: List all plans in the current project
-          if (url.pathname === "/api/plan/history") {
-            return Response.json({
-              project,
-              plans: listProjectPlans(project),
-            });
+          // API: List archived plans (from ~/.plannotator/plans/)
+          if (url.pathname === "/api/archive/plans" && req.method === "GET") {
+            return Response.json({ plans: listArchivedPlans() });
+          }
+
+          // API: Get a specific archived plan
+          if (url.pathname === "/api/archive/plan" && req.method === "GET") {
+            const filename = url.searchParams.get("filename");
+            if (!filename) {
+              return Response.json({ error: "Missing filename parameter" }, { status: 400 });
+            }
+            const content = readArchivedPlan(filename);
+            if (content === null) {
+              return Response.json({ error: "Plan not found" }, { status: 404 });
+            }
+            return Response.json({ markdown: content, filepath: filename });
           }
 
           // API: Get plan content

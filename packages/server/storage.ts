@@ -100,6 +100,97 @@ export function saveFinalSnapshot(
   return filePath;
 }
 
+// --- Plan Archive ---
+
+export interface ArchivedPlan {
+  filename: string;
+  title: string;
+  date: string;
+  timestamp: string;  // ISO string from file mtime
+  status: "approved" | "denied" | "unknown";
+  size: number;
+}
+
+/**
+ * Parse an archive filename into metadata.
+ * Handles both old (DATE-heading-status.md) and new (heading-DATE-status.md) formats.
+ */
+export function parseArchiveFilename(filename: string): ArchivedPlan | null {
+  // Skip non-decision files
+  if (filename.endsWith(".annotations.md") || filename.endsWith(".diff.md")) return null;
+
+  const base = filename.replace(/\.md$/, "");
+
+  // Extract status suffix
+  let status: ArchivedPlan["status"] = "unknown";
+  let slug = base;
+  if (base.endsWith("-approved")) {
+    status = "approved";
+    slug = base.slice(0, -"-approved".length);
+  } else if (base.endsWith("-denied")) {
+    status = "denied";
+    slug = base.slice(0, -"-denied".length);
+  } else {
+    // Skip plain files (no decision status)
+    return null;
+  }
+
+  // Extract date (YYYY-MM-DD) — could be anywhere in the slug
+  const dateMatch = slug.match(/(\d{4}-\d{2}-\d{2})/);
+  const date = dateMatch ? dateMatch[1] : "";
+
+  // Title: remove date, convert hyphens to spaces, trim
+  const title = slug
+    .replace(/\d{4}-\d{2}-\d{2}/, "")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-+/g, " ")
+    .trim() || "Untitled Plan";
+
+  return { filename, title, date, timestamp: "", status, size: 0 };
+}
+
+/**
+ * List all archived plans (approved/denied decision snapshots).
+ * Returns plans sorted by date descending.
+ */
+export function listArchivedPlans(customPath?: string | null): ArchivedPlan[] {
+  const planDir = getPlanDir(customPath);
+  try {
+    const entries = readdirSync(planDir);
+    const plans: ArchivedPlan[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const parsed = parseArchiveFilename(entry);
+      if (!parsed) continue;
+      try {
+        const stat = statSync(join(planDir, entry));
+        parsed.size = stat.size;
+        parsed.timestamp = stat.mtime.toISOString();
+      } catch { /* keep defaults */ }
+      plans.push(parsed);
+    }
+    return plans.sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Read an archived plan file by filename.
+ * Returns null if the file doesn't exist or on read error.
+ */
+export function readArchivedPlan(filename: string, customPath?: string | null): string | null {
+  const planDir = getPlanDir(customPath);
+  const filePath = join(planDir, filename);
+  // Guard against path traversal
+  if (!filePath.startsWith(planDir)) return null;
+  try {
+    return readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
 // --- Version History ---
 
 /**

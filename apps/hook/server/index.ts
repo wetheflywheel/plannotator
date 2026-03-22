@@ -442,6 +442,41 @@ if (args[0] === "sessions") {
   console.log(result.feedback || "No feedback provided.");
   process.exit(0);
 
+} else if (args[0] === "archive") {
+  // ============================================
+  // ARCHIVE BROWSER MODE
+  // ============================================
+
+  const { startArchiveServer, handleArchiveServerReady } = await import("@plannotator/server/archive");
+
+  const archiveProject = (await detectProjectName()) ?? "_unknown";
+
+  const server = await startArchiveServer({
+    origin: "claude-code",
+    sharingEnabled,
+    shareBaseUrl,
+    htmlContent: planHtmlContent,
+    onReady: (url, isRemote, port) => {
+      handleArchiveServerReady(url, isRemote, port);
+    },
+  });
+
+  registerSession({
+    pid: process.pid,
+    port: server.port,
+    url: server.url,
+    mode: "archive" as any,
+    project: archiveProject,
+    startedAt: new Date().toISOString(),
+    label: `archive-${archiveProject}`,
+  });
+
+  await server.waitForDone();
+
+  await Bun.sleep(500);
+  server.stop();
+  process.exit(0);
+
 } else {
   // ============================================
   // PLAN REVIEW MODE (default)
