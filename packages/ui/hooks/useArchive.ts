@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useMemo, useCallback } from "react";
-import type { ArchivedPlan } from "../components/sidebar/ArchiveBrowser";
+import type { ArchivedPlan } from "@plannotator/shared/storage";
 import type { UseLinkedDocReturn } from "./useLinkedDoc";
 import type { ViewerHandle } from "../components/Viewer";
 import type { Annotation } from "../types";
@@ -135,8 +135,7 @@ export function useArchive(options: UseArchiveOptions): UseArchiveReturn {
   }, [setSubmitted]);
 
   const copy = useCallback(() => {
-    const planOnly = markdown.split("\n\n---\n\n# Plan Feedback")[0];
-    navigator.clipboard.writeText(planOnly);
+    navigator.clipboard.writeText(markdown);
   }, [markdown]);
 
   const clearSelection = useCallback(() => {

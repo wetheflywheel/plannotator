@@ -6,15 +6,9 @@
  */
 
 import React from "react";
+import type { ArchivedPlan } from "@plannotator/shared/storage";
 
-export interface ArchivedPlan {
-  filename: string;
-  title: string;
-  date: string;
-  timestamp: string;
-  status: "approved" | "denied" | "unknown";
-  size: number;
-}
+export type { ArchivedPlan };
 
 interface ArchiveBrowserProps {
   plans: ArchivedPlan[];
