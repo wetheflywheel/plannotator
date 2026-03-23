@@ -9,7 +9,6 @@
     ".": "./index.ts",
     "./review": "./review.ts",
     "./annotate": "./annotate.ts",
-    "./archive": "./archive.ts",
     "./remote": "./remote.ts",
     "./browser": "./browser.ts",
     "./storage": "./storage.ts",

@@ -727,7 +727,7 @@ const App: React.FC = () => {
 
   // Archive: Copy plan content (without annotations section)
   const handleArchiveCopy = () => {
-    const planOnly = markdown.split('\n\n---\n\n')[0];
+    const planOnly = markdown.split('\n\n---\n\n# Plan Feedback')[0];
     navigator.clipboard.writeText(planOnly);
   };
 

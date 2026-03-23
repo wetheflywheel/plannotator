@@ -447,17 +447,17 @@ if (args[0] === "sessions") {
   // ARCHIVE BROWSER MODE
   // ============================================
 
-  const { startArchiveServer, handleArchiveServerReady } = await import("@plannotator/server/archive");
-
   const archiveProject = (await detectProjectName()) ?? "_unknown";
 
-  const server = await startArchiveServer({
+  const server = await startPlannotatorServer({
+    plan: "",
     origin: "claude-code",
+    mode: "archive",
     sharingEnabled,
     shareBaseUrl,
     htmlContent: planHtmlContent,
     onReady: (url, isRemote, port) => {
-      handleArchiveServerReady(url, isRemote, port);
+      handleServerReady(url, isRemote, port);
     },
   });
 
@@ -471,7 +471,7 @@ if (args[0] === "sessions") {
     label: `archive-${archiveProject}`,
   });
 
-  await server.waitForDone();
+  await server.waitForDone!();
 
   await Bun.sleep(500);
   server.stop();
