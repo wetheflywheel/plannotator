@@ -33,6 +33,12 @@ Requires the `codex` CLI installed and authenticated. The AI operates in a sandb
 - GPT-5.2 Codex
 - GPT-5.2
 
+### Pi (via RPC subprocess)
+
+Requires the `pi` CLI installed and configured. Plannotator spawns `pi --mode rpc` and communicates over JSONL/stdio. Models are discovered dynamically from your Pi installation — whatever models you've configured in Pi are available here.
+
+No API keys are managed by Plannotator — Pi uses its own local configuration.
+
 ## Configuration
 
 Provider and model selection is available in **Settings > AI**. These persist via cookies across sessions.
@@ -47,6 +53,8 @@ A session is created lazily on your first question. Until then, no resources are
 
 **Codex sessions** inject the review context as a system prompt prefix. The AI has Codex's built-in capabilities plus the diff. Codex sessions are always standalone — fork support is not available.
 
+**Pi sessions** inject the review context as a system prompt prefix, similar to Codex. Pi uses its full default toolset (read, bash, edit, write). Pi sessions are always standalone — fork and resume are not available.
+
 **Diff context handling:** Large diffs are truncated at roughly 40k characters to stay within context limits. However, when you select specific lines and ask a question, the selected code is always sent alongside the question regardless of truncation.
 
 ## Permission requests
@@ -55,20 +63,22 @@ When using Claude, the AI may request permission to use tools like Read, Glob, G
 
 Codex sessions run in a sandboxed read-only mode, so permission requests do not apply.
 
+Pi does not expose a permission approval gate over RPC, so tool execution is handled entirely by Pi's own runtime.
+
 ## Reasoning effort
 
 Codex supports a reasoning effort setting with four levels: **Low**, **Medium**, **High**, and **Max**. This is available in the config bar at the bottom of the AI sidebar. Higher effort means slower but more thorough responses.
 
-This setting only applies to Codex — Claude does not expose a reasoning effort control.
+This setting only applies to Codex — Claude and Pi do not expose a reasoning effort control.
 
 ## Available settings
 
 | Setting | Description | Provider |
 |---------|-------------|----------|
-| Provider | Claude or Codex | Both |
-| Model | Model selection per provider | Both |
+| Provider | Claude, Codex, or Pi | All |
+| Model | Model selection per provider | All |
 | Reasoning effort | Low / Medium / High / Max | Codex only |
 | Default tools | Read, Glob, Grep, WebSearch | Claude only |
 | Sandbox mode | Read-only | Codex only |
 | Permission mode | Default | Claude only |
-| Max turns | 99 | Both |
+| Max turns | 99 | Claude, Codex |
