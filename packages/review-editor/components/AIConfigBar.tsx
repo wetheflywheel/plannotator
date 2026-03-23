@@ -44,7 +44,9 @@ export const AIConfigBar: React.FC<AIConfigBarProps> = ({
 }) => {
   const [showSessionNote, setShowSessionNote] = useState(false);
   const [openMenu, setOpenMenu] = useState<'provider' | 'model' | 'effort' | null>(null);
+  const [modelSearch, setModelSearch] = useState('');
   const barRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Flash "New chat session" briefly when config changes while a session exists
   useEffect(() => {
@@ -60,6 +62,7 @@ export const AIConfigBar: React.FC<AIConfigBarProps> = ({
     const handler = (e: MouseEvent) => {
       if (barRef.current && !barRef.current.contains(e.target as Node)) {
         setOpenMenu(null);
+        setModelSearch('');
       }
     };
     document.addEventListener('mousedown', handler);
@@ -95,6 +98,7 @@ export const AIConfigBar: React.FC<AIConfigBarProps> = ({
     if (hasSession) setShowSessionNote(true);
     onModelChange(id);
     setOpenMenu(null);
+    setModelSearch('');
   };
 
   const handleEffortSelect = (id: string) => {
@@ -173,24 +177,40 @@ export const AIConfigBar: React.FC<AIConfigBarProps> = ({
 
             {openMenu === 'model' && (
               <div className="ai-config-menu">
-                {models.map(m => {
-                  const isActive = m.id === effectiveModel;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => handleModelSelect(m.id)}
-                      className={`ai-config-menu-item ${isActive ? 'ai-config-menu-item-active' : ''}`}
-                    >
-                      <span>{m.label}</span>
-                      {isActive && (
-                        <svg className="w-3 h-3 ml-auto text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </button>
-                  );
-                })}
+                {models.length > 8 && (
+                  <div className="ai-config-menu-search">
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Filter models…"
+                      value={modelSearch}
+                      onChange={e => setModelSearch(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                )}
+                <div className={models.length > 8 ? 'ai-config-menu-scroll' : ''}>
+                  {models
+                    .filter(m => !modelSearch || m.label.toLowerCase().includes(modelSearch.toLowerCase()))
+                    .map(m => {
+                      const isActive = m.id === effectiveModel;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => handleModelSelect(m.id)}
+                          className={`ai-config-menu-item ${isActive ? 'ai-config-menu-item-active' : ''}`}
+                        >
+                          <span>{m.label}</span>
+                          {isActive && (
+                            <svg className="w-3 h-3 ml-auto text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
+                </div>
               </div>
             )}
           </div>
