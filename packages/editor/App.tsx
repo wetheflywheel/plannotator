@@ -690,13 +690,9 @@ const App: React.FC = () => {
 
       e.preventDefault();
 
-      // Annotate mode: always send feedback
+      // Annotate mode: always send feedback (empty = "no feedback" message)
       if (annotateMode) {
-        if (annotations.length === 0) {
-          setShowFeedbackPrompt(true);
-        } else {
-          handleAnnotateFeedback();
-        }
+        handleAnnotateFeedback();
         return;
       }
 
@@ -779,7 +775,7 @@ const App: React.FC = () => {
     const hasEditorAnnotations = editorAnnotations.length > 0;
 
     if (!hasPlanAnnotations && !hasDocAnnotations && !hasEditorAnnotations) {
-      return 'No changes detected.';
+      return 'User reviewed the document and has no feedback.';
     }
 
     let output = hasPlanAnnotations
@@ -996,10 +992,16 @@ const App: React.FC = () => {
               <>
                 <button
                   onClick={() => {
-                    if (annotations.length === 0 && editorAnnotations.length === 0) {
-                      setShowFeedbackPrompt(true);
-                    } else if (annotateMode) {
+                    if (annotateMode) {
                       handleAnnotateFeedback();
+                      return;
+                    }
+                    const docAnnotations = linkedDocHook.getDocAnnotations();
+                    const hasDocAnnotations = Array.from(docAnnotations.values()).some(
+                      (d) => d.annotations.length > 0 || d.globalAttachments.length > 0
+                    );
+                    if (annotations.length === 0 && editorAnnotations.length === 0 && !hasDocAnnotations) {
+                      setShowFeedbackPrompt(true);
                     } else {
                       handleDeny();
                     }
@@ -1010,12 +1012,12 @@ const App: React.FC = () => {
                       ? 'opacity-50 cursor-not-allowed bg-muted text-muted-foreground'
                       : 'bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30'
                   }`}
-                  title="Send Feedback"
+                  title={annotateMode ? (annotations.length > 0 || editorAnnotations.length > 0 || linkedDocHook.docAnnotationCount > 0 ? 'Send Annotations' : 'Done') : 'Send Feedback'}
                 >
                   <svg className="w-4 h-4 md:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
-                  <span className="hidden md:inline">{isSubmitting ? 'Sending...' : annotateMode ? 'Send Annotations' : 'Send Feedback'}</span>
+                  <span className="hidden md:inline">{isSubmitting ? 'Sending...' : annotateMode ? (annotations.length > 0 || editorAnnotations.length > 0 || linkedDocHook.docAnnotationCount > 0 ? 'Send Annotations' : 'Done') : 'Send Feedback'}</span>
                 </button>
 
                 {!annotateMode && <div className="relative group/approve">
