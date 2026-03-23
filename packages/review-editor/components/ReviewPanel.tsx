@@ -6,7 +6,7 @@ import { HighlightedCode } from './HighlightedCode';
 import { detectLanguage } from '../utils/detectLanguage';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
 import { usePRContext } from '../hooks/usePRContext';
-import { formatTimestamp } from '../utils/formatTimestamp';
+import { formatRelativeTime } from '../utils/formatRelativeTime';
 import { PRSummaryTab } from './PRSummaryTab';
 import { PRCommentsTab } from './PRCommentsTab';
 import { PRChecksTab } from './PRChecksTab';
@@ -339,7 +339,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({
                                   )}
                                 </div>
                                 <span className="text-[10px] text-muted-foreground/50">
-                                  {formatTimestamp(annotation.createdAt)}
+                                  {formatRelativeTime(annotation.createdAt)}
                                 </span>
                               </div>
                               {annotation.text && (

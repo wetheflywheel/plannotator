@@ -56,6 +56,7 @@ import { KeyboardShortcuts } from './KeyboardShortcuts';
 import { type QuickLabel, getQuickLabels, saveQuickLabels, resetQuickLabels, DEFAULT_QUICK_LABELS, getLabelColors, LABEL_COLOR_MAP } from '../utils/quickLabels';
 import { hasNewSettings, markNewSettingsSeen } from '../utils/newSettingsHint';
 import { ThemeTab } from './ThemeTab';
+import { isMac, modKey, altKey } from '../utils/platform';
 import { getAIProviderSettings } from '../utils/aiProvider';
 import { AISettingsTab } from './AISettingsTab';
 
@@ -765,7 +766,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                       <div>
                         <div className="text-sm font-medium">Default Save Action</div>
                         <div className="text-xs text-muted-foreground">
-                          Used for keyboard shortcut ({navigator.platform?.includes('Mac') ? 'Cmd' : 'Ctrl'}+S)
+                          Used for keyboard shortcut ({modKey}+S)
                         </div>
                       </div>
                       <select
@@ -783,8 +784,8 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                         {defaultNotesApp === 'ask'
                           ? 'Opens Export dialog with Notes tab'
                           : defaultNotesApp === 'download'
-                            ? `${navigator.platform?.includes('Mac') ? 'Cmd' : 'Ctrl'}+S downloads the annotations file`
-                            : `${navigator.platform?.includes('Mac') ? 'Cmd' : 'Ctrl'}+S saves directly to ${{ obsidian: 'Obsidian', bear: 'Bear', octarine: 'Octarine' }[defaultNotesApp] ?? defaultNotesApp}`}
+                            ? `${modKey}+S downloads the annotations file`
+                            : `${modKey}+S saves directly to ${{ obsidian: 'Obsidian', bear: 'Bear', octarine: 'Octarine' }[defaultNotesApp] ?? defaultNotesApp}`}
                       </div>
                     </div>
 
@@ -932,7 +933,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                                 ))}
                               </select>
                               <span className="text-[10px] text-muted-foreground/50 font-mono w-8 text-center flex-shrink-0">
-                                {index < 10 ? `${navigator.platform?.includes('Mac') ? '⌥' : 'Alt+'}${index === 9 ? '0' : index + 1}` : ''}
+                                {index < 10 ? `${altKey}${isMac ? '' : '+'}${index === 9 ? '0' : index + 1}` : ''}
                               </span>
                               <button
                                 onClick={() => {
@@ -1019,7 +1020,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                     )}
 
                     <div className="text-[10px] text-muted-foreground/70">
-                      Use {navigator.platform?.includes('Mac') ? '⌥' : 'Alt+'}1 through {navigator.platform?.includes('Mac') ? '⌥' : 'Alt+'}0 when the annotation toolbar is visible to apply a label instantly.
+                      Use {altKey}{isMac ? '' : '+'}1 through {altKey}{isMac ? '' : '+'}0 when the annotation toolbar is visible to apply a label instantly.
                     </div>
                   </>
                 )}

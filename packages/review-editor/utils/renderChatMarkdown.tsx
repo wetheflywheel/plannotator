@@ -1,13 +1,15 @@
+/**
+ * Markdown renderer for AI chat responses in the review sidebar.
+ *
+ * Distinct from the plan editor's markdown rendering (packages/ui) which
+ * parses into Block objects for annotation. This is a simpler HTML pipeline
+ * for streaming chat messages: marked → DOMPurify → dangerouslySetInnerHTML.
+ */
 import type React from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
-/**
- * Render full markdown to sanitized HTML.
- * Uses marked for parsing + DOMPurify for safety.
- * Suitable for AI responses which contain headings, lists, code blocks, etc.
- */
-export function renderMarkdown(text: string): React.ReactNode {
+export function renderChatMarkdown(text: string): React.ReactNode {
   const html = marked.parse(text, { async: false, breaks: true }) as string;
   const clean = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [

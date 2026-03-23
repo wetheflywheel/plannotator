@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { formatLineRange } from '../utils/formatLineRange';
 import { SparklesIcon } from './SparklesIcon';
 import type { AIChatEntry } from '../hooks/useAIChat';
-import { submitHint } from '../utils/platform';
+import { submitHint } from '@plannotator/ui/utils/platform';
 
 interface AskAIInputProps {
   lineStart: number;

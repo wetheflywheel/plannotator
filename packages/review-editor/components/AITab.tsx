@@ -1,14 +1,14 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback, memo } from 'react';
 import type { AIChatEntry, PendingPermission } from '../hooks/useAIChat';
-import { renderMarkdown } from '../utils/renderMarkdown';
+import { renderChatMarkdown } from '../utils/renderChatMarkdown';
 import { formatLineRange } from '../utils/formatLineRange';
-import { formatTimestamp } from '../utils/formatTimestamp';
+import { formatRelativeTime } from '../utils/formatRelativeTime';
 import { SparklesIcon } from './SparklesIcon';
 import { CountBadge } from './CountBadge';
 import { CopyButton } from './CopyButton';
 import { PermissionCard } from './PermissionCard';
 import { AIConfigBar } from './AIConfigBar';
-import { submitHint } from '../utils/platform';
+import { submitHint } from '@plannotator/ui/utils/platform';
 
 interface AIProviderInfo {
   id: string;
@@ -341,7 +341,7 @@ const QAPair = memo<{
 }>(({ question, response, onScrollToLines }) => {
   const scope = getQuestionScope(question);
   const renderedResponse = useMemo(
-    () => response.text ? renderMarkdown(response.text) : null,
+    () => response.text ? renderChatMarkdown(response.text) : null,
     [response.text],
   );
 
@@ -366,7 +366,7 @@ const QAPair = memo<{
             )}
           </div>
           <span className="text-[10px] text-muted-foreground/50">
-            {formatTimestamp(question.createdAt)}
+            {formatRelativeTime(question.createdAt)}
           </span>
         </div>
         <p className="text-xs text-foreground/80">{question.prompt}</p>

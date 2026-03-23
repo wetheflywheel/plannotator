@@ -33,11 +33,9 @@ import { exportReviewFeedback } from './utils/exportFeedback';
 import type { DiffFile } from './types';
 import type { DiffOption, WorktreeInfo, GitContext } from '@plannotator/shared/types';
 import type { PRMetadata } from '@plannotator/shared/pr-provider';
+import { altKey } from '@plannotator/ui/utils/platform';
 
 declare const __APP_VERSION__: string;
-
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
-const altKey = isMac ? '⌥' : 'Alt';
 
 interface DiffData {
   files: DiffFile[];

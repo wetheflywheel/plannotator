@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { ImageAttachment } from '../types';
 import { AttachmentsButton } from './AttachmentsButton';
+import { submitHint } from '../utils/platform';
 
 interface CommentPopoverProps {
   /** Element to anchor the popover near (re-reads position on scroll) */
@@ -127,8 +128,6 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
       : 'Comment';
 
   const canSubmit = text.trim().length > 0 || images.length > 0;
-  const isMac = navigator.platform?.includes('Mac') ?? navigator.userAgent?.includes('Mac');
-  const shortcutHint = isMac ? '\u2318\u21B5' : 'Ctrl+\u21B5';
 
   if (mode === 'dialog') {
     return createPortal(
@@ -199,7 +198,7 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
               />
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-[10px] text-muted-foreground">{shortcutHint}</span>
+              <span className="text-[10px] text-muted-foreground">{submitHint}</span>
               <button
                 onClick={handleSubmit}
                 disabled={!canSubmit}
@@ -291,7 +290,7 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
           />
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] text-muted-foreground">{shortcutHint}</span>
+          <span className="text-[10px] text-muted-foreground">{submitHint}</span>
           <button
             onClick={handleSubmit}
             disabled={!canSubmit}

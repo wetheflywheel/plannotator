@@ -1,6 +1,5 @@
 import React from 'react';
-
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+import { isMac, modKey, altKey } from '../utils/platform';
 
 /* ─── Key cap component ─── */
 
@@ -56,7 +55,6 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
 
 /* ─── Platform-aware key names ─── */
 
-const mod = isMac ? '⌘' : 'Ctrl';
 const enter = isMac ? '⏎' : '↵';
 
 /* ─── Shortcut data ─── */
@@ -72,31 +70,29 @@ interface ShortcutSection {
   shortcuts: Shortcut[];
 }
 
-const alt = isMac ? '⌥' : 'Alt';
-
 const planShortcuts: ShortcutSection[] = [
   {
     title: 'Actions',
     shortcuts: [
-      { keys: [mod, enter], desc: 'Submit / Approve' },
-      { keys: [mod, 'S'], desc: 'Save to notes app' },
+      { keys: [modKey, enter], desc: 'Submit / Approve' },
+      { keys: [modKey, 'S'], desc: 'Save to notes app' },
       { keys: ['Esc'], desc: 'Close dialog' },
     ],
   },
   {
     title: 'Input Method',
     shortcuts: [
-      { keys: [alt, 'hold'], desc: 'Temporarily switch mode', hint: 'Hold to switch between Select and Pinpoint, release to revert' },
-      { keys: [alt, alt], desc: 'Toggle mode', hint: 'Double-tap to permanently switch between Select and Pinpoint' },
+      { keys: [altKey, 'hold'], desc: 'Temporarily switch mode', hint: 'Hold to switch between Select and Pinpoint, release to revert' },
+      { keys: [altKey, altKey], desc: 'Toggle mode', hint: 'Double-tap to permanently switch between Select and Pinpoint' },
     ],
   },
   {
     title: 'Annotations',
     shortcuts: [
       { keys: ['a-z'], desc: 'Start typing comment', hint: 'When the annotation toolbar is open, any letter key opens the comment editor with that character' },
-      { keys: [alt, '1-0'], desc: 'Apply quick label', hint: 'Instantly applies the Nth preset label (0 = 10th). When the label picker is open, bare digits also work.' },
-      { keys: [mod, enter], desc: 'Submit comment' },
-      { keys: [mod, 'C'], desc: 'Copy selected text' },
+      { keys: [altKey, '1-0'], desc: 'Apply quick label', hint: 'Instantly applies the Nth preset label (0 = 10th). When the label picker is open, bare digits also work.' },
+      { keys: [modKey, enter], desc: 'Submit comment' },
+      { keys: [modKey, 'C'], desc: 'Copy selected text' },
       { keys: ['Esc'], desc: 'Close toolbar / Cancel' },
     ],
   },
@@ -106,7 +102,7 @@ const planShortcuts: ShortcutSection[] = [
       { keys: ['1'], desc: 'Pen tool' },
       { keys: ['2'], desc: 'Arrow tool' },
       { keys: ['3'], desc: 'Circle tool' },
-      { keys: [mod, 'Z'], desc: 'Undo' },
+      { keys: [modKey, 'Z'], desc: 'Undo' },
       { keys: [enter], desc: 'Finish' },
       { keys: ['Esc'], desc: 'Cancel' },
     ],
@@ -117,9 +113,9 @@ const reviewShortcuts: ShortcutSection[] = [
   {
     title: 'Actions',
     shortcuts: [
-      { keys: [mod, enter], desc: 'Approve / Send feedback' },
-      { keys: [alt, alt], desc: 'Toggle destination', hint: 'Double-tap to switch between GitHub and Agent in PR review mode' },
-      { keys: [mod, '⇧', 'C'], desc: 'Toggle comment mode' },
+      { keys: [modKey, enter], desc: 'Approve / Send feedback' },
+      { keys: [altKey, altKey], desc: 'Toggle destination', hint: 'Double-tap to switch between GitHub and Agent in PR review mode' },
+      { keys: [modKey, '⇧', 'C'], desc: 'Toggle comment mode' },
       { keys: ['Esc'], desc: 'Collapse sidebar' },
     ],
   },
@@ -135,7 +131,7 @@ const reviewShortcuts: ShortcutSection[] = [
   {
     title: 'Annotations',
     shortcuts: [
-      { keys: [mod, enter], desc: 'Submit comment' },
+      { keys: [modKey, enter], desc: 'Submit comment' },
       { keys: ['Tab'], desc: 'Indent in editor' },
       { keys: ['Esc'], desc: 'Close toolbar / Cancel' },
     ],

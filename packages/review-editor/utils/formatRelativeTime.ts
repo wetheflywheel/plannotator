@@ -1,5 +1,10 @@
-/** Relative timestamp: "now", "3m", "2h", "5d", or "Mar 15" */
-export function formatTimestamp(ts: number): string {
+/**
+ * Human-readable relative timestamps for the review UI.
+ *
+ * Used by AITab (chat message timestamps) and ReviewPanel (annotation timestamps).
+ * Returns compact strings: "now", "3m", "2h", "5d", or "Mar 15" for older dates.
+ */
+export function formatRelativeTime(ts: number): string {
   const now = Date.now();
   const diff = now - ts;
   const seconds = Math.floor(diff / 1000);

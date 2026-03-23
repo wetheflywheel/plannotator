@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ImageThumbnail, getImageSrc } from './ImageThumbnail';
 import { ImageAnnotator } from './ImageAnnotator';
 import type { ImageAttachment } from '../types';
+import { modKey } from '../utils/platform';
 
 /**
  * Derive a clean, human-readable name from an original filename.
@@ -318,7 +319,7 @@ export const AttachmentsButton: React.FC<AttachmentsButtonProps> = ({
                       Drop image or click to browse
                     </span>
                     <span className="text-[10px] text-muted-foreground/70">
-                      {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+V to paste from clipboard
+                      {modKey}+V to paste from clipboard
                     </span>
                   </>
                 )}
