@@ -1005,6 +1005,15 @@ describe("mapPiEvent", () => {
     }]);
   });
 
+  test("process_exited maps to error", () => {
+    const result = mapPiEvent({ type: "process_exited" }, SESSION_ID);
+    expect(result).toEqual([{
+      type: "error",
+      error: "Pi process exited unexpectedly.",
+      code: "pi_process_exit",
+    }]);
+  });
+
   test("ignored events return empty", () => {
     expect(mapPiEvent({ type: "agent_start" }, SESSION_ID)).toEqual([]);
     expect(mapPiEvent({ type: "turn_start" }, SESSION_ID)).toEqual([]);

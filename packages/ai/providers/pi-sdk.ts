@@ -57,9 +57,9 @@ class PiProcess {
         pending.reject(new Error("Pi process exited unexpectedly"));
       }
       this.pendingRequests.clear();
-      // Signal active query listeners so the drain loop exits
+      // Signal active query listeners so the drain loop exits with an error
       for (const listener of this.listeners) {
-        listener({ type: "agent_end", messages: [] });
+        listener({ type: "process_exited" });
       }
     });
   }
@@ -336,14 +336,25 @@ class PiSDKSession extends BaseSession {
         const mapped = mapPiEvent(event, this.id);
         for (const msg of mapped) {
           push(msg);
-          if (msg.type === "result" || (msg.type === "error" && event.type === "agent_end")) {
+          if (msg.type === "result" || (msg.type === "error" && (event.type === "agent_end" || event.type === "process_exited"))) {
             finish();
           }
         }
       });
 
-      // Send prompt
-      this.process.send({ type: "prompt", message: effectivePrompt });
+      // Send prompt — use sendAndWait to catch RPC-level rejections
+      // (e.g. expired credentials, invalid session)
+      try {
+        await this.process.sendAndWait({ type: "prompt", message: effectivePrompt });
+      } catch (err) {
+        unsubscribe();
+        yield {
+          type: "error",
+          error: `Pi rejected prompt: ${err instanceof Error ? err.message : String(err)}`,
+          code: "pi_prompt_rejected",
+        };
+        return;
+      }
       this._firstQuerySent = true;
 
       // Drain queue
@@ -457,6 +468,13 @@ export function mapPiEvent(
         type: "result",
         sessionId,
         success: true,
+      }];
+
+    case "process_exited":
+      return [{
+        type: "error",
+        error: "Pi process exited unexpectedly.",
+        code: "pi_process_exit",
       }];
 
     default:
