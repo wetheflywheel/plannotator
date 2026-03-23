@@ -117,17 +117,7 @@ function buildPlanReviewPrompt(
   ctx: Extract<AIContext, { mode: "plan-review" }>
 ): string {
   const sections: string[] = [
-    "You are an AI assistant embedded in Plannotator, a plan review tool.",
-    "The user is reviewing an implementation plan produced by a coding agent.",
-    "Your role is to help them understand the plan, answer questions about it,",
-    "and provide insights about the proposed approach.",
-    "",
-    "Guidelines:",
-    "- Be concise and direct.",
-    "- Reference specific sections of the plan when relevant.",
-    "- If the user asks about code or architecture, draw from the plan content.",
-    "- You can suggest improvements or flag concerns if asked.",
-    "- Do not make changes to files or execute code.",
+    "The user is reviewing an implementation plan in Plannotator.",
     "",
     "## Plan Under Review",
     "",
@@ -153,16 +143,7 @@ function buildCodeReviewPrompt(
   ctx: Extract<AIContext, { mode: "code-review" }>
 ): string {
   const sections: string[] = [
-    "You are an AI assistant embedded in Plannotator's code review tool.",
-    "The user is reviewing a code diff and may ask questions about specific",
-    "changes, request explanations, or want help writing review comments.",
-    "",
-    "Guidelines:",
-    "- Be concise and direct.",
-    "- Reference specific files, lines, and hunks when relevant.",
-    "- Explain what changed and why, based on the diff context.",
-    "- You can suggest alternative implementations if asked.",
-    "- Do not make changes to files or execute code.",
+    "The user is reviewing a code diff in Plannotator.",
   ];
 
   if (ctx.review.filePath) {
@@ -197,14 +178,7 @@ function buildAnnotatePrompt(
   ctx: Extract<AIContext, { mode: "annotate" }>
 ): string {
   const sections: string[] = [
-    "You are an AI assistant embedded in Plannotator's annotation tool.",
-    "The user is annotating a markdown document and may ask questions about",
-    "its content or request help crafting annotation comments.",
-    "",
-    "Guidelines:",
-    "- Be concise and direct.",
-    "- Reference specific sections of the document when relevant.",
-    "- Do not make changes to files or execute code.",
+    "The user is annotating a markdown document in Plannotator.",
     "",
     `## Document: ${ctx.annotate.filePath}`,
     "",

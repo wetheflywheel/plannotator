@@ -208,7 +208,7 @@ describe("Context builders", () => {
       plan: { plan: "# My Plan\n\nStep 1: do things" },
     };
     const prompt = buildSystemPrompt(ctx);
-    expect(prompt).toContain("plan review tool");
+    expect(prompt).toContain("Plannotator");
     expect(prompt).toContain("# My Plan");
     expect(prompt).toContain("Step 1: do things");
   });
@@ -219,7 +219,7 @@ describe("Context builders", () => {
       review: { patch: "diff --git a/foo.ts b/foo.ts\n+hello" },
     };
     const prompt = buildSystemPrompt(ctx);
-    expect(prompt).toContain("code review tool");
+    expect(prompt).toContain("Plannotator");
     expect(prompt).toContain("diff --git");
   });
 
@@ -229,7 +229,7 @@ describe("Context builders", () => {
       annotate: { content: "# Doc\nSome content", filePath: "/tmp/test.md" },
     };
     const prompt = buildSystemPrompt(ctx);
-    expect(prompt).toContain("annotation tool");
+    expect(prompt).toContain("Plannotator");
     expect(prompt).toContain("/tmp/test.md");
   });
 

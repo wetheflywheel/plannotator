@@ -20,6 +20,7 @@ import { useCodeAnnotationDraft } from '@plannotator/ui/hooks/useCodeAnnotationD
 import { useGitAdd } from './hooks/useGitAdd';
 import { generateId } from './utils/generateId';
 import { useAIChat } from './hooks/useAIChat';
+import { extractLinesFromPatch } from './utils/patchParser';
 import { isTypingTarget, useReviewSearch } from './hooks/useReviewSearch';
 import { useEditorAnnotations } from '@plannotator/ui/hooks/useEditorAnnotations';
 import { exportEditorAnnotations } from '@plannotator/ui/utils/parser';
@@ -233,13 +234,16 @@ const ReviewApp: React.FC = () => {
     if (!pendingSelection || !files[activeFileIndex]) return;
     const lineStart = Math.min(pendingSelection.start, pendingSelection.end);
     const lineEnd = Math.max(pendingSelection.start, pendingSelection.end);
+    const side = pendingSelection.side === 'additions' ? 'new' : 'old';
+    const selectedCode = extractLinesFromPatch(files[activeFileIndex].patch, lineStart, lineEnd, side);
 
     aiChat.ask({
       prompt: question,
       filePath: files[activeFileIndex].path,
       lineStart,
       lineEnd,
-      side: pendingSelection.side === 'additions' ? 'new' : 'old',
+      side,
+      selectedCode: selectedCode || undefined,
     });
   }, [pendingSelection, files, activeFileIndex, aiChat]);
 

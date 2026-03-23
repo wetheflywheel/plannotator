@@ -46,7 +46,7 @@ interface ClaudeSDKQueryOptions {
   includePartialMessages: boolean;
   persistSession: boolean;
   maxBudgetUsd?: number;
-  systemPrompt?: string;
+  systemPrompt?: string | { type: "preset"; preset: string; append?: string };
   resume?: string;
   forkSession?: boolean;
   permissionMode?: ClaudeAgentSDKConfig['permissionMode'];
@@ -321,9 +321,13 @@ class ClaudeAgentSDKSession implements AISession {
       return this.applyPermissionMode(opts);
     }
 
-    // First query: apply initial session setup
+    // First query: use Claude Code's built-in prompt with our context appended
     if (this.config.systemPrompt) {
-      opts.systemPrompt = this.config.systemPrompt;
+      opts.systemPrompt = {
+        type: "preset",
+        preset: "claude_code",
+        append: this.config.systemPrompt,
+      };
     }
 
     if (this.config.forkFromSession) {
