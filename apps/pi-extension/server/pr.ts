@@ -16,7 +16,7 @@ import {
 	type PRRuntime,
 	parsePRUrl as parsePRUrlCore,
 	submitPRReview as submitPRReviewCore,
-} from "../pr-provider.js";
+} from "../generated/pr-provider.js";
 
 const prRuntime: PRRuntime = {
 	async runCommand(cmd, args) {

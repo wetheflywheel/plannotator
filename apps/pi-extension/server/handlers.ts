@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
-import { saveDraft, loadDraft, deleteDraft } from "../draft.js";
+import { saveDraft, loadDraft, deleteDraft } from "../generated/draft.js";
 
 import { json, parseBody, send, toWebRequest } from "./helpers";
 

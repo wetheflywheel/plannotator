@@ -12,7 +12,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import { Readable } from "node:stream";
 
-import { contentHash, deleteDraft } from "./draft.js";
+import { contentHash, deleteDraft } from "./generated/draft.js";
 import { parseBody, json, html, send, toWebRequest } from "./server/helpers.js";
 import { handleImageRequest, handleUploadRequest, handleDraftRequest, handleFavicon } from "./server/handlers.js";
 import { createEditorAnnotationHandler } from "./server/annotations.js";
@@ -22,7 +22,7 @@ import { openEditorDiff } from "./server/ide.js";
 import { listenOnPort } from "./server/network.js";
 import { detectProjectName, getRepoInfo } from "./server/project.js";
 import { parsePRUrl, checkPRAuth, getPRUser, fetchPR, fetchPRContext, fetchPRFileContent, submitPRReview } from "./server/pr.js";
-import { type PRMetadata, type PRReviewFileComment, prRefFromMetadata, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr-provider.js";
+import { type PRMetadata, type PRReviewFileComment, prRefFromMetadata, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./generated/pr-provider.js";
 import {
 	type DiffType,
 	type GitCommandResult,
@@ -35,7 +35,7 @@ import {
 	parseWorktreeDiffType,
 	runGitDiff as runGitDiffCore,
 	validateFilePath,
-} from "./review-core.js";
+} from "./generated/review-core.js";
 import {
 	generateSlug,
 	saveToHistory,
@@ -48,7 +48,7 @@ import {
 	saveAnnotations,
 	saveFinalSnapshot,
 	type ArchivedPlan,
-} from "./storage.js";
+} from "./generated/storage.js";
 
 // ── Plan Review Server ──────────────────────────────────────────────────
 
@@ -428,7 +428,7 @@ export async function startPlanReviewServer(options: {
 	};
 }
 
-export type { DiffType, DiffOption, GitContext } from "./review-core.js";
+export type { DiffType, DiffOption, GitContext } from "./generated/review-core.js";
 
 export interface ReviewServerResult {
 	port: number;

@@ -38,7 +38,7 @@ import {
   runGitDiff,
   openBrowser,
 } from "./server.js";
-import { planDenyFeedback } from "./feedback-templates.js";
+import { planDenyFeedback } from "./generated/feedback-templates.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
