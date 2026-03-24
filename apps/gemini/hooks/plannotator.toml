@@ -1,6 +1,6 @@
 # Plannotator policy for Gemini CLI
 # Allows exit_plan_mode without TUI confirmation so the browser UI is the sole gate.
-# Install to: ~/.gemini/policies/plannotator.toml
+# Installed to: ~/.gemini/policies/plannotator.toml
 
 [[rule]]
 toolName = "exit_plan_mode"

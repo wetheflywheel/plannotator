@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "plannotator-gemini",
+            "command": "plannotator",
             "timeout": 345600
           }
         ]

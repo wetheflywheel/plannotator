@@ -240,6 +240,61 @@ else
     echo "Skipping skills install (git not found)"
 fi
 
+# --- Gemini CLI support (only if Gemini is installed) ---
+if [ -d "$HOME/.gemini" ]; then
+    # Install policy file
+    GEMINI_POLICIES_DIR="$HOME/.gemini/policies"
+    mkdir -p "$GEMINI_POLICIES_DIR"
+    cat > "$GEMINI_POLICIES_DIR/plannotator.toml" << 'GEMINI_POLICY_EOF'
+# Plannotator policy for Gemini CLI
+# Allows exit_plan_mode without TUI confirmation so the browser UI is the sole gate.
+[[rule]]
+toolName = "exit_plan_mode"
+decision = "allow"
+priority = 100
+GEMINI_POLICY_EOF
+    echo "Installed Gemini policy to ${GEMINI_POLICIES_DIR}/plannotator.toml"
+
+    # Configure hook in settings.json
+    GEMINI_SETTINGS="$HOME/.gemini/settings.json"
+    if [ -f "$GEMINI_SETTINGS" ]; then
+        if ! grep -q '"plannotator"' "$GEMINI_SETTINGS" 2>/dev/null; then
+            echo ""
+            echo "Add the following to your ~/.gemini/settings.json hooks:"
+            echo ""
+            echo '  "hooks": {'
+            echo '    "BeforeTool": [{'
+            echo '      "matcher": "exit_plan_mode",'
+            echo '      "hooks": [{"type": "command", "command": "plannotator", "timeout": 345600}]'
+            echo '    }]'
+            echo '  }'
+        fi
+    else
+        cat > "$GEMINI_SETTINGS" << 'GEMINI_SETTINGS_EOF'
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "exit_plan_mode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "plannotator",
+            "timeout": 345600
+          }
+        ]
+      }
+    ]
+  },
+  "experimental": {
+    "plan": true
+  }
+}
+GEMINI_SETTINGS_EOF
+        echo "Created Gemini settings at ${GEMINI_SETTINGS}"
+    fi
+fi
+
 echo ""
 echo "=========================================="
 echo "  OPENCODE USERS"

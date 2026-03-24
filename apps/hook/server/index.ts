@@ -749,9 +749,21 @@ if (args[0] === "sessions") {
 
   let planContent = "";
   let permissionMode = "default";
+  let isGemini = false;
+  let event: Record<string, any>;
   try {
-    const event = JSON.parse(eventJson);
-    planContent = event.tool_input?.plan || "";
+    event = JSON.parse(eventJson);
+
+    // Detect harness: Gemini sends plan_path (file on disk), Claude Code sends plan (inline)
+    isGemini = !!event.tool_input?.plan_path;
+
+    if (isGemini) {
+      const planFilePath = path.resolve(event.cwd, event.tool_input.plan_path);
+      planContent = await Bun.file(planFilePath).text();
+    } else {
+      planContent = event.tool_input?.plan || "";
+    }
+
     permissionMode = event.permission_mode || "default";
   } catch {
     console.error("Failed to parse hook event from stdin");
@@ -768,7 +780,7 @@ if (args[0] === "sessions") {
   // Start the plan review server
   const server = await startPlannotatorServer({
     plan: planContent,
-    origin: detectedOrigin,
+    origin: isGemini ? "gemini-cli" : detectedOrigin,
     permissionMode,
     sharingEnabled,
     shareBaseUrl,
@@ -802,41 +814,56 @@ if (args[0] === "sessions") {
   // Cleanup
   server.stop();
 
-  // Output JSON for PermissionRequest hook decision control
-  if (result.approved) {
-    // Build updatedPermissions to preserve the current permission mode
-    const updatedPermissions = [];
-    if (result.permissionMode) {
-      updatedPermissions.push({
-        type: "setMode",
-        mode: result.permissionMode,
-        destination: "session",
-      });
+  // Output decision in the appropriate format for the harness
+  if (isGemini) {
+    if (result.approved) {
+      console.log(result.feedback ? JSON.stringify({ systemMessage: result.feedback }) : "{}");
+    } else {
+      console.log(
+        JSON.stringify({
+          decision: "deny",
+          reason: planDenyFeedback(result.feedback || "", "exit_plan_mode", {
+            planFilePath: event.tool_input.plan_path,
+          }),
+        })
+      );
     }
-
-    console.log(
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PermissionRequest",
-          decision: {
-            behavior: "allow",
-            ...(updatedPermissions.length > 0 && { updatedPermissions }),
-          },
-        },
-      })
-    );
   } else {
-    console.log(
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PermissionRequest",
-          decision: {
-            behavior: "deny",
-            message: planDenyFeedback(result.feedback || "", "ExitPlanMode"),
+    // Claude Code: PermissionRequest hook decision
+    if (result.approved) {
+      const updatedPermissions = [];
+      if (result.permissionMode) {
+        updatedPermissions.push({
+          type: "setMode",
+          mode: result.permissionMode,
+          destination: "session",
+        });
+      }
+
+      console.log(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PermissionRequest",
+            decision: {
+              behavior: "allow",
+              ...(updatedPermissions.length > 0 && { updatedPermissions }),
+            },
           },
-        },
-      })
-    );
+        })
+      );
+    } else {
+      console.log(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PermissionRequest",
+            decision: {
+              behavior: "deny",
+              message: planDenyFeedback(result.feedback || "", "ExitPlanMode"),
+            },
+          },
+        })
+      );
+    }
   }
 
   process.exit(0);
