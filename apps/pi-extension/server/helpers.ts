@@ -49,6 +49,10 @@ export function send(
 	res.end(body);
 }
 
+export function requestUrl(req: IncomingMessage): URL {
+	return new URL(req.url ?? "/", "http://localhost");
+}
+
 export function toWebRequest(req: IncomingMessage): Request {
 	const headers = new Headers();
 	for (const [key, value] of Object.entries(req.headers)) {

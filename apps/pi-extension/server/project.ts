@@ -10,7 +10,10 @@ import { sanitizeTag } from "../generated/project.js";
 /** Run a git command and return stdout (empty string on error). */
 function git(cmd: string): string {
 	try {
-		return execSync(`git ${cmd}`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+		return execSync(`git ${cmd}`, {
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		}).trim();
 	} catch {
 		return "";
 	}
