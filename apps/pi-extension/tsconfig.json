@@ -9,7 +9,7 @@
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
-    "types": ["bun-types"]
+    "types": ["node"]
   },
   "include": ["index.ts", "server.ts", "server/**/*.ts"],
   "exclude": ["**/*.test.ts"]
