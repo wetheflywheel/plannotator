@@ -52,6 +52,7 @@ import { getGitContext, runGitDiff } from "@plannotator/server/git";
 import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getCliInstallUrl, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
 import { resolveMarkdownFile, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
+import { FILE_BROWSER_EXCLUDED } from "@plannotator/shared/reference-common";
 import { statSync } from "fs";
 import { registerSession, unregisterSession, listSessions } from "@plannotator/server/sessions";
 import { openBrowser } from "@plannotator/server/browser";
@@ -290,7 +291,7 @@ if (args[0] === "sessions") {
 
   if (isFolder) {
     // Folder annotation mode
-    if (!hasMarkdownFiles(resolvedArg)) {
+    if (!hasMarkdownFiles(resolvedArg, FILE_BROWSER_EXCLUDED)) {
       console.error(`No markdown files found in ${resolvedArg}`);
       process.exit(1);
     }

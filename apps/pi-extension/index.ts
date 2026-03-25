@@ -36,6 +36,7 @@ import {
 } from "./generated/checklist.js";
 import { planDenyFeedback } from "./generated/feedback-templates.js";
 import { hasMarkdownFiles } from "./generated/resolve-file.js";
+import { FILE_BROWSER_EXCLUDED } from "./generated/reference-common.js";
 import { openBrowser } from "./server/network.js";
 import {
 	type AnnotateServerResult,
@@ -372,7 +373,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 			let mode: string | undefined;
 
 			if (isFolder) {
-				if (!hasMarkdownFiles(absolutePath)) {
+				if (!hasMarkdownFiles(absolutePath, FILE_BROWSER_EXCLUDED)) {
 					ctx.ui.notify(`No markdown files found in ${absolutePath}`, "error");
 					return;
 				}
