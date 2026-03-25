@@ -34,8 +34,10 @@ export interface AnnotateServerOptions {
   htmlContent: string;
   /** Origin identifier for UI customization */
   origin?: "opencode" | "claude-code" | "pi" | "codex";
-  /** UI mode: "annotate" for files, "annotate-last" for last agent message */
-  mode?: "annotate" | "annotate-last";
+  /** UI mode: "annotate" for files, "annotate-last" for last agent message, "annotate-folder" for folders */
+  mode?: "annotate" | "annotate-last" | "annotate-folder";
+  /** Folder path when annotating a directory (used as projectRoot for file browser) */
+  folderPath?: string;
   /** Whether URL sharing is enabled (default: true) */
   sharingEnabled?: boolean;
   /** Custom base URL for share links */
@@ -84,6 +86,7 @@ export async function startAnnotateServer(
     htmlContent,
     origin,
     mode = "annotate",
+    folderPath,
     sharingEnabled = true,
     shareBaseUrl,
     pasteApiUrl,
@@ -131,7 +134,7 @@ export async function startAnnotateServer(
               shareBaseUrl,
               pasteApiUrl,
               repoInfo,
-              projectRoot: process.cwd(),
+              projectRoot: folderPath || process.cwd(),
             });
           }
 

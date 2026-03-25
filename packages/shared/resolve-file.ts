@@ -217,3 +217,31 @@ export function resolveMarkdownFile(
 
 	return { kind: "not_found", input };
 }
+
+/**
+ * Check if a directory contains at least one markdown file.
+ * Used to validate folder annotation targets.
+ *
+ * @param dirPath - Directory to search
+ * @param excludedDirs - Directory names to skip (with trailing slash, e.g. "node_modules/")
+ */
+export function hasMarkdownFiles(dirPath: string, excludedDirs: string[] = IGNORED_DIRS): boolean {
+	function walk(dir: string): boolean {
+		let entries;
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return false;
+		}
+		for (const entry of entries) {
+			if (entry.isDirectory()) {
+				if (excludedDirs.some((d) => d === entry.name + "/")) continue;
+				if (walk(join(dir, entry.name))) return true;
+			} else if (entry.isFile() && /\.mdx?$/i.test(entry.name)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	return walk(dirPath);
+}

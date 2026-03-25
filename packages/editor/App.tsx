@@ -87,7 +87,7 @@ const App: React.FC = () => {
   const [origin, setOrigin] = useState<'claude-code' | 'opencode' | 'pi' | 'codex' | null>(null);
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
   const [annotateMode, setAnnotateMode] = useState(false);
-  const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | null>(null);
+  const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | 'folder' | null>(null);
   const [imageBaseDir, setImageBaseDir] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -385,7 +385,7 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last' | 'archive'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string }) => {
+      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string }) => {
         if (data.mode === 'archive') {
           // Archive mode: show first archived plan or clear demo content
           setMarkdown(data.plan || '');
@@ -393,18 +393,24 @@ const App: React.FC = () => {
           archive.fetchPlans();
           setSharingEnabled(false);
           sidebar.open('archive');
+        } else if (data.mode === 'annotate-folder') {
+          // Folder annotation mode: clear demo content, let user pick a file
+          setMarkdown('');
         } else if (data.plan) {
           setMarkdown(data.plan);
         }
         setIsApiMode(true);
-        if (data.mode === 'annotate' || data.mode === 'annotate-last') {
+        if (data.mode === 'annotate' || data.mode === 'annotate-last' || data.mode === 'annotate-folder') {
           setAnnotateMode(true);
         }
+        if (data.mode === 'annotate-folder') {
+          sidebar.open('files');
+        }
         if (data.mode && data.mode !== 'archive') {
-          setAnnotateSource(data.mode === 'annotate-last' ? 'message' : 'file');
+          setAnnotateSource(data.mode === 'annotate-last' ? 'message' : data.mode === 'annotate-folder' ? 'folder' : 'file');
         }
         if (data.filePath) {
-          setImageBaseDir(data.filePath.replace(/\/[^/]+$/, ''));
+          setImageBaseDir(data.mode === 'annotate-folder' ? data.filePath : data.filePath.replace(/\/[^/]+$/, ''));
         }
         if (data.sharingEnabled !== undefined) {
           setSharingEnabled(data.sharingEnabled);
@@ -833,7 +839,7 @@ const App: React.FC = () => {
     }
 
     let output = hasPlanAnnotations
-      ? exportAnnotations(blocks, annotations, globalAttachments, annotateSource === 'message' ? 'Message Feedback' : annotateSource === 'file' ? 'File Feedback' : 'Plan Feedback', annotateSource ?? 'plan')
+      ? exportAnnotations(blocks, annotations, globalAttachments, annotateSource === 'message' ? 'Message Feedback' : annotateSource === 'folder' ? 'Folder Feedback' : annotateSource === 'file' ? 'File Feedback' : 'Plan Feedback', annotateSource ?? 'plan')
       : '';
 
     if (hasDocAnnotations) {
@@ -1394,8 +1400,17 @@ const App: React.FC = () => {
                   />
                 </div>
               )}
+              {/* Folder annotation empty state — shown before user picks a file */}
+              {annotateSource === 'folder' && !markdown && !linkedDocHook.isActive && (
+                <div className="w-full flex justify-center">
+                  <div className="w-full max-w-3xl p-12 text-center text-muted-foreground">
+                    <p className="text-lg font-medium mb-2">Select a file to annotate</p>
+                    <p className="text-sm">Pick a markdown file from the sidebar to begin.</p>
+                  </div>
+                </div>
+              )}
               {/* Normal Plan View — always mounted, hidden during diff mode */}
-              <div className="w-full flex justify-center" style={{ display: isPlanDiffActive && planDiff.diffBlocks ? 'none' : undefined }}>
+              <div className="w-full flex justify-center" style={{ display: (isPlanDiffActive && planDiff.diffBlocks) || (annotateSource === 'folder' && !markdown && !linkedDocHook.isActive) ? 'none' : undefined }}>
                 <Viewer
                   key={linkedDocHook.isActive ? `doc:${linkedDocHook.filepath}` : 'plan'}
                   ref={viewerRef}
@@ -1423,7 +1438,7 @@ const App: React.FC = () => {
                   onOpenLinkedDoc={handleOpenLinkedDoc}
                   linkedDocInfo={linkedDocHook.isActive ? { filepath: linkedDocHook.filepath!, onBack: handleLinkedDocBack, label: vaultBrowser.activeFile ? 'Vault File' : fileBrowser.activeFile ? 'File' : undefined } : null}
                   imageBaseDir={imageBaseDir}
-                  copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' ? 'Copy file' : undefined}
+                  copyLabel={annotateSource === 'message' ? 'Copy message' : annotateSource === 'file' || annotateSource === 'folder' ? 'Copy file' : undefined}
                   archiveInfo={archive.currentInfo}
                 />
               </div>
@@ -1569,7 +1584,7 @@ const App: React.FC = () => {
               : submitted === 'approved'
                 ? `${agentName} will proceed with the implementation.`
                 : annotateMode
-                  ? `${agentName} will address your annotations on the ${annotateSource === 'message' ? 'message' : 'file'}.`
+                  ? `${agentName} will address your annotations on the ${annotateSource === 'message' ? 'message' : annotateSource === 'folder' ? 'files' : 'file'}.`
                   : `${agentName} will revise the plan based on your annotations.`
           }
           agentLabel={agentName}
