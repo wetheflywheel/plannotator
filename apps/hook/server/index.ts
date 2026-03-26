@@ -1,7 +1,7 @@
 /**
  * Plannotator CLI for Claude Code
  *
- * Supports four modes:
+ * Supports five modes:
  *
  * 1. Plan Review (default, no args):
  *    - Spawned by ExitPlanMode hook
@@ -18,7 +18,12 @@
  *    - Opens any markdown file in the annotation UI
  *    - Outputs structured feedback to stdout
  *
- * 4. Sessions (`plannotator sessions`):
+ * 4. Archive (`plannotator archive`):
+ *    - Opens read-only browser for saved plan decisions
+ *    - Lists plans from ~/.plannotator/plans/ with status badges
+ *    - Done button closes the browser
+ *
+ * 5. Sessions (`plannotator sessions`):
  *    - Lists active Plannotator server sessions
  *    - `--open [N]` reopens a session in the browser
  *    - `--clean` removes stale session files
@@ -44,14 +49,16 @@ import {
   handleAnnotateServerReady,
 } from "@plannotator/server/annotate";
 import { getGitContext, runGitDiff } from "@plannotator/server/git";
-import { parsePRUrl, checkGhAuth, fetchPR } from "@plannotator/server/pr";
+import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getCliInstallUrl, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
-import { resolveMarkdownFile } from "@plannotator/server/resolve-file";
+import { resolveMarkdownFile, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
+import { FILE_BROWSER_EXCLUDED } from "@plannotator/shared/reference-common";
+import { statSync } from "fs";
 import { registerSession, unregisterSession, listSessions } from "@plannotator/server/sessions";
 import { openBrowser } from "@plannotator/server/browser";
 import { detectProjectName } from "@plannotator/server/project";
 import { planDenyFeedback } from "@plannotator/shared/feedback-templates";
-import { findSessionLogsForCwd, getLastRenderedMessage, type RenderedMessage } from "./session-log";
+import { findSessionLogsForCwd, resolveSessionLogByPpid, findSessionLogsByAncestorWalk, getLastRenderedMessage, type RenderedMessage } from "./session-log";
 import { findCodexRolloutByThreadId, getLastCodexMessage } from "./codex-session";
 import path from "path";
 
@@ -149,23 +156,34 @@ if (args[0] === "sessions") {
     // --- PR Review Mode ---
     const prRef = parsePRUrl(urlArg);
     if (!prRef) {
-      console.error(`Invalid PR URL: ${urlArg}`);
-      console.error("Supported formats: https://github.com/owner/repo/pull/123");
+      console.error(`Invalid PR/MR URL: ${urlArg}`);
+      console.error("Supported formats:");
+      console.error("  GitHub: https://github.com/owner/repo/pull/123");
+      console.error("  GitLab: https://gitlab.com/group/project/-/merge_requests/42");
       process.exit(1);
     }
+
+    const cliName = getCliName(prRef);
+    const cliUrl = getCliInstallUrl(prRef);
 
     try {
-      await checkGhAuth();
+      await checkPRAuth(prRef);
     } catch (err) {
-      console.error(err instanceof Error ? err.message : "GitHub CLI auth check failed");
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not found") || msg.includes("ENOENT")) {
+        console.error(`${cliName === "gh" ? "GitHub" : "GitLab"} CLI (${cliName}) is not installed.`);
+        console.error(`Install it from ${cliUrl}`);
+      } else {
+        console.error(msg);
+      }
       process.exit(1);
     }
 
-    console.error(`Fetching PR #${prRef.number} from ${prRef.owner}/${prRef.repo}...`);
+    console.error(`Fetching ${getMRLabel(prRef)} ${getMRNumberLabel(prRef)} from ${getDisplayRepo(prRef)}...`);
     try {
       const pr = await fetchPR(prRef);
       rawPatch = pr.rawPatch;
-      gitRef = `PR #${prRef.number}`;
+      gitRef = `${getMRLabel(prRef)} ${getMRNumberLabel(prRef)}`;
       prMetadata = pr.metadata;
     } catch (err) {
       console.error(err instanceof Error ? err.message : "Failed to fetch PR");
@@ -210,7 +228,7 @@ if (args[0] === "sessions") {
     mode: "review",
     project: reviewProject,
     startedAt: new Date().toISOString(),
-    label: isPRMode ? `pr-review-${prMetadata!.owner}/${prMetadata!.repo}#${prMetadata!.number}` : `review-${reviewProject}`,
+    label: isPRMode ? `${getMRLabel(prMetadata!).toLowerCase()}-review-${getDisplayRepo(prMetadata!)}${getMRNumberLabel(prMetadata!)}` : `review-${reviewProject}`,
   });
 
   // Wait for user feedback
@@ -240,7 +258,7 @@ if (args[0] === "sessions") {
 
   let filePath = args[1];
   if (!filePath) {
-    console.error("Usage: plannotator annotate <file.md>");
+    console.error("Usage: plannotator annotate <file.md | folder/>");
     process.exit(1);
   }
 
@@ -257,24 +275,51 @@ if (args[0] === "sessions") {
     console.error(`[DEBUG] File path arg: ${filePath}`);
   }
 
-  // Smart file resolution: exact path, case-insensitive relative, or bare filename search
-  const resolved = await resolveMarkdownFile(filePath, projectRoot);
+  // Check if the argument is a directory (folder annotation mode)
+  const resolvedArg = path.resolve(projectRoot, filePath);
+  let isFolder = false;
+  try {
+    isFolder = statSync(resolvedArg).isDirectory();
+  } catch {
+    // Not a directory, fall through to file resolution
+  }
 
-  if (resolved.kind === "ambiguous") {
-    console.error(`Ambiguous filename "${resolved.input}" — found ${resolved.matches.length} matches:`);
-    for (const match of resolved.matches) {
-      console.error(`  ${match}`);
+  let markdown: string;
+  let absolutePath: string;
+  let folderPath: string | undefined;
+  let annotateMode: "annotate" | "annotate-folder" = "annotate";
+
+  if (isFolder) {
+    // Folder annotation mode
+    if (!hasMarkdownFiles(resolvedArg, FILE_BROWSER_EXCLUDED)) {
+      console.error(`No markdown files found in ${resolvedArg}`);
+      process.exit(1);
     }
-    process.exit(1);
-  }
-  if (resolved.kind === "not_found") {
-    console.error(`File not found: ${resolved.input}`);
-    process.exit(1);
-  }
+    folderPath = resolvedArg;
+    absolutePath = resolvedArg;
+    markdown = "";
+    annotateMode = "annotate-folder";
+    console.error(`Folder: ${resolvedArg}`);
+  } else {
+    // Single file annotation mode
+    const resolved = resolveMarkdownFile(filePath, projectRoot);
 
-  const absolutePath = resolved.path;
-  console.error(`Resolved: ${absolutePath}`);
-  const markdown = await Bun.file(absolutePath).text();
+    if (resolved.kind === "ambiguous") {
+      console.error(`Ambiguous filename "${resolved.input}" — found ${resolved.matches.length} matches:`);
+      for (const match of resolved.matches) {
+        console.error(`  ${match}`);
+      }
+      process.exit(1);
+    }
+    if (resolved.kind === "not_found") {
+      console.error(`File not found: ${resolved.input}`);
+      process.exit(1);
+    }
+
+    absolutePath = resolved.path;
+    markdown = await Bun.file(absolutePath).text();
+    console.error(`Resolved: ${absolutePath}`);
+  }
 
   const annotateProject = (await detectProjectName()) ?? "_unknown";
 
@@ -283,13 +328,16 @@ if (args[0] === "sessions") {
     markdown,
     filePath: absolutePath,
     origin: "claude-code",
+    mode: annotateMode,
+    folderPath,
     sharingEnabled,
     shareBaseUrl,
+    pasteApiUrl,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
 
-      if (isRemote && sharingEnabled) {
+      if (isRemote && sharingEnabled && markdown) {
         await writeRemoteShareLink(markdown, shareBaseUrl, "annotate", "document only").catch(() => {});
       }
     },
@@ -302,7 +350,7 @@ if (args[0] === "sessions") {
     mode: "annotate",
     project: annotateProject,
     startedAt: new Date().toISOString(),
-    label: `annotate-${path.basename(absolutePath)}`,
+    label: folderPath ? `annotate-${path.basename(folderPath)}` : `annotate-${path.basename(absolutePath)}`,
   });
 
   // Wait for user feedback
@@ -345,21 +393,43 @@ if (args[0] === "sessions") {
       }
     }
   } else {
-    // Claude Code path: find session logs by CWD
-    const candidates = findSessionLogsForCwd(projectRoot);
+    // Claude Code path: resolve session log
+    //
+    // Strategy (most precise → least precise):
+    // 1. PPID session metadata: ~/.claude/sessions/<ppid>.json gives us the
+    //    exact sessionId and original cwd. Deterministic, O(1), no scanning.
+    // 2. CWD slug match: existing behavior — works when the shell CWD hasn't
+    //    changed from the session's project directory.
+    // 3. Ancestor walk: walk up the directory tree trying parent slugs. Handles
+    //    the common case where the user `cd`'d deeper into a subdirectory.
 
     if (process.env.PLANNOTATOR_DEBUG) {
       console.error(`[DEBUG] Project root: ${projectRoot}`);
-      console.error(`[DEBUG] Candidates: ${candidates.join(", ")}`);
+      console.error(`[DEBUG] PPID: ${process.ppid}`);
     }
 
-    for (const logPath of candidates) {
+    /** Try each log path, return the first that yields a message. */
+    function tryLogCandidates(label: string, getPaths: () => string[]): void {
+      if (lastMessage) return;
+      const paths = getPaths();
       if (process.env.PLANNOTATOR_DEBUG) {
-        console.error(`[DEBUG] Trying: ${logPath}`);
+        console.error(`[DEBUG] ${label}: ${paths.length ? paths.join(", ") : "(none)"}`);
       }
-      lastMessage = getLastRenderedMessage(logPath);
-      if (lastMessage) break;
+      for (const logPath of paths) {
+        lastMessage = getLastRenderedMessage(logPath);
+        if (lastMessage) return;
+      }
     }
+
+    // 1. Try PPID-based session metadata (most reliable)
+    const ppidLog = resolveSessionLogByPpid();
+    tryLogCandidates("PPID session metadata", () => ppidLog ? [ppidLog] : []);
+
+    // 2. Fall back to CWD slug match
+    tryLogCandidates("CWD slug match", () => findSessionLogsForCwd(projectRoot));
+
+    // 3. Fall back to ancestor directory walk
+    tryLogCandidates("Ancestor walk", () => findSessionLogsByAncestorWalk(projectRoot));
   }
 
   if (!lastMessage) {
@@ -380,6 +450,7 @@ if (args[0] === "sessions") {
     mode: "annotate-last",
     sharingEnabled,
     shareBaseUrl,
+    pasteApiUrl,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
       handleAnnotateServerReady(url, isRemote, port);
@@ -407,6 +478,41 @@ if (args[0] === "sessions") {
   server.stop();
 
   console.log(result.feedback || "No feedback provided.");
+  process.exit(0);
+
+} else if (args[0] === "archive") {
+  // ============================================
+  // ARCHIVE BROWSER MODE
+  // ============================================
+
+  const archiveProject = (await detectProjectName()) ?? "_unknown";
+
+  const server = await startPlannotatorServer({
+    plan: "",
+    origin: "claude-code",
+    mode: "archive",
+    sharingEnabled,
+    shareBaseUrl,
+    htmlContent: planHtmlContent,
+    onReady: (url, isRemote, port) => {
+      handleServerReady(url, isRemote, port);
+    },
+  });
+
+  registerSession({
+    pid: process.pid,
+    port: server.port,
+    url: server.url,
+    mode: "archive",
+    project: archiveProject,
+    startedAt: new Date().toISOString(),
+    label: `archive-${archiveProject}`,
+  });
+
+  await server.waitForDone!();
+
+  await Bun.sleep(500);
+  server.stop();
   process.exit(0);
 
 } else {

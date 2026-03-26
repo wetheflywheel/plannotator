@@ -34,7 +34,7 @@ Interactive Plan & Code Review for AI Coding Agents. Mark up and refine your pla
 <table>
 <tr><td><strong>Visual Plan Review</strong></td><td>Built-in hook</td><td>Approve or deny agent plans with inline annotations</td></tr>
 <tr><td><strong>Plan Diff</strong></td><td>Automatic</td><td>See what changed when the agent revises a plan</td></tr>
-<tr><td><strong>Code Review</strong></td><td><code>/plannotator-review</code></td><td>Review git diffs or GitHub PRs with line-level annotations</td></tr>
+<tr><td><strong>Code Review</strong></td><td><code>/plannotator-review</code></td><td>View git diffs or remote PRs. Package annotations and ask AI about the code as you review.</td></tr>
 <tr><td><strong>Annotate Any File</strong></td><td><code>/plannotator-annotate</code></td><td>Annotate any markdown file and send feedback to your agent</td></tr>
 <tr><td><strong>Annotate Last Message</strong></td><td><code>/plannotator-last</code></td><td>Annotate the agent's last response and send structured feedback</td></tr>
 </table>
@@ -48,7 +48,7 @@ Plannotator lets you privately share plans, annotations, and feedback with colle
 **Large plans** use a short link service with **end-to-end encryption**. Your plan is encrypted with AES-256-GCM in your browser before upload. The server stores only ciphertext it cannot read. The decryption key lives only in the URL you share. Pastes auto-delete after 7 days.
 
 - Zero-knowledge storage, similar to [PrivateBin](https://privatebin.info/)
-- Fully open source and self-hostable ([see docs](https://plannotator.ai/docs/guides/sharing-and-collaboration/))
+- Fully open source and **self-hostable** ([see docs](https://plannotator.ai/docs/guides/sharing-and-collaboration/))
 
 ## Install
 
@@ -162,6 +162,8 @@ When your AI agent finishes planning, Plannotator:
 2. Lets you annotate the plan visually (delete, insert, replace, comment)
 3. **Approve** → Agent proceeds with implementation
 4. **Request changes** → Your annotations are sent back as structured feedback
+
+(Similar flow for code review, except you can also comment on specific lines of code diffs)
 
 ---
 

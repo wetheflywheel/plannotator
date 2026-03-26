@@ -31,14 +31,18 @@ import {
   getPlanVersionPath,
   getVersionCount,
   listVersions,
-  listProjectPlans,
+  listArchivedPlans,
+  readArchivedPlan,
+  type ArchivedPlan,
 } from "./storage";
 import { getRepoInfo } from "./repo";
 import { detectProjectName } from "./project";
+import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon, type OpencodeClient } from "./shared-handlers";
 import { contentHash, deleteDraft } from "./draft";
-import { handleDoc, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc } from "./reference-handlers";
+import { handleDoc, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc, handleFileBrowserFiles } from "./reference-handlers";
 import { createEditorAnnotationHandler } from "./editor-annotations";
+import { isWSL } from "./browser";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -46,7 +50,7 @@ export { openBrowser } from "./browser";
 export * from "./integrations";
 export * from "./storage";
 export { handleServerReady } from "./shared-handlers";
-export { type VaultNode, buildFileTree } from "./reference-handlers";
+export { type VaultNode, buildFileTree } from "@plannotator/shared/reference-common";
 
 // --- Types ---
 
@@ -69,6 +73,10 @@ export interface ServerOptions {
   onReady?: (url: string, isRemote: boolean, port: number) => void;
   /** OpenCode client for querying available agents (OpenCode only) */
   opencodeClient?: OpencodeClient;
+  /** When set to "archive", server runs in read-only archive browser mode */
+  mode?: "archive";
+  /** Custom plan save path — used by archive mode to find saved plans */
+  customPlanPath?: string | null;
 }
 
 export interface ServerResult {
@@ -86,6 +94,8 @@ export interface ServerResult {
     agentSwitch?: string;
     permissionMode?: string;
   }>;
+  /** Wait for user to close (archive mode only) */
+  waitForDone?: () => Promise<void>;
   /** Stop the server */
   stop: () => void;
 }
@@ -107,35 +117,42 @@ const RETRY_DELAY_MS = 500;
 export async function startPlannotatorServer(
   options: ServerOptions
 ): Promise<ServerResult> {
-  const { plan, origin, htmlContent, permissionMode, sharingEnabled = true, shareBaseUrl, pasteApiUrl, onReady } = options;
+  const { plan, origin, htmlContent, permissionMode, sharingEnabled = true, shareBaseUrl, pasteApiUrl, onReady, mode, customPlanPath } = options;
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
-  const draftKey = contentHash(plan);
-  const editorAnnotations = createEditorAnnotationHandler();
+  const wslFlag = await isWSL();
+  const gitUser = detectGitUser();
 
-  // Generate slug for potential saving (actual save happens on decision)
-  const slug = generateSlug(plan);
+  // --- Archive mode setup ---
+  let archivePlans: ArchivedPlan[] = [];
+  let initialArchivePlan = "";
+  let resolveDone: (() => void) | undefined;
+  let donePromise: Promise<void> | undefined;
 
-  // Detect repo info (cached for this session)
-  const repoInfo = await getRepoInfo();
+  if (mode === "archive") {
+    archivePlans = listArchivedPlans(customPlanPath ?? undefined);
+    initialArchivePlan = archivePlans.length > 0
+      ? readArchivedPlan(archivePlans[0].filename, customPlanPath ?? undefined) ?? ""
+      : "";
+    donePromise = new Promise<void>((resolve) => { resolveDone = resolve; });
+  }
 
-  // Version history: save plan and detect previous version
-  const project = (await detectProjectName()) ?? "_unknown";
-  const historyResult = saveToHistory(project, slug, plan);
-  const currentPlanPath = historyResult.path;
-  const previousPlan =
-    historyResult.version > 1
-      ? getPlanVersion(project, slug, historyResult.version - 1)
-      : null;
-  const versionInfo = {
-    version: historyResult.version,
-    totalVersions: getVersionCount(project, slug),
-    project,
-  };
+  // --- Plan review mode setup (skip in archive mode) ---
+  const draftKey = mode !== "archive" ? contentHash(plan) : "";
+  const editorAnnotations = mode !== "archive" ? createEditorAnnotationHandler() : null;
+  const slug = mode !== "archive" ? generateSlug(plan) : "";
 
+  // Lazy cache for in-session archive browsing (plan review sidebar tab)
+  let cachedArchivePlans: ReturnType<typeof listArchivedPlans> | null = null;
 
-  // Decision promise
+  // Plan-specific: repo info, version history, decision promise
+  let repoInfo: Awaited<ReturnType<typeof getRepoInfo>> | null = null;
+  let project = "";
+  let currentPlanPath = "";
+  let previousPlan: string | null = null;
+  let versionInfo = { version: 0, totalVersions: 0, project: "" };
+
   let resolveDecision: (result: {
     approved: boolean;
     feedback?: string;
@@ -143,15 +160,36 @@ export async function startPlannotatorServer(
     agentSwitch?: string;
     permissionMode?: string;
   }) => void;
-  const decisionPromise = new Promise<{
+  let decisionPromise: Promise<{
     approved: boolean;
     feedback?: string;
     savedPath?: string;
     agentSwitch?: string;
     permissionMode?: string;
-  }>((resolve) => {
-    resolveDecision = resolve;
-  });
+  }>;
+
+  if (mode !== "archive") {
+    repoInfo = await getRepoInfo();
+    project = (await detectProjectName()) ?? "_unknown";
+    const historyResult = saveToHistory(project, slug, plan);
+    currentPlanPath = historyResult.path;
+    previousPlan =
+      historyResult.version > 1
+        ? getPlanVersion(project, slug, historyResult.version - 1)
+        : null;
+    versionInfo = {
+      version: historyResult.version,
+      totalVersions: getVersionCount(project, slug),
+      project,
+    };
+
+    decisionPromise = new Promise((resolve) => {
+      resolveDecision = resolve;
+    });
+  } else {
+    // Never-resolving promise — archive mode uses waitForDone instead
+    decisionPromise = new Promise(() => {});
+  }
 
   // Start server with retry logic
   let server: ReturnType<typeof Bun.serve> | null = null;
@@ -190,22 +228,67 @@ export async function startPlannotatorServer(
             });
           }
 
-          // API: List all plans in the current project
-          if (url.pathname === "/api/plan/history") {
-            return Response.json({
-              project,
-              plans: listProjectPlans(project),
-            });
+          // API: List archived plans (from ~/.plannotator/plans/)
+          // Cached for session lifetime — new plans won't appear during a single review
+          if (url.pathname === "/api/archive/plans" && req.method === "GET") {
+            const customPath = url.searchParams.get("customPath") || undefined;
+            if (!cachedArchivePlans) cachedArchivePlans = listArchivedPlans(customPath);
+            return Response.json({ plans: cachedArchivePlans });
+          }
+
+          // API: Get a specific archived plan
+          if (url.pathname === "/api/archive/plan" && req.method === "GET") {
+            const filename = url.searchParams.get("filename");
+            if (!filename) {
+              return Response.json({ error: "Missing filename parameter" }, { status: 400 });
+            }
+            const customPath = url.searchParams.get("customPath") || undefined;
+            const content = readArchivedPlan(filename, customPath);
+            if (content === null) {
+              return Response.json({ error: "Plan not found" }, { status: 404 });
+            }
+            return Response.json({ markdown: content, filepath: filename });
+          }
+
+          // API: Close archive browser (archive mode only)
+          if (url.pathname === "/api/done" && req.method === "POST") {
+            resolveDone?.();
+            return Response.json({ ok: true });
           }
 
           // API: Get plan content
           if (url.pathname === "/api/plan") {
-            return Response.json({ plan, origin, permissionMode, sharingEnabled, shareBaseUrl, pasteApiUrl, repoInfo, previousPlan, versionInfo });
+            if (mode === "archive") {
+              return Response.json({
+                plan: initialArchivePlan,
+                origin,
+                mode: "archive",
+                archivePlans,
+                sharingEnabled,
+                shareBaseUrl,
+                isWSL: wslFlag,
+                serverConfig: getServerConfig(gitUser),
+              });
+            }
+            return Response.json({ plan, origin, permissionMode, sharingEnabled, shareBaseUrl, pasteApiUrl, repoInfo, previousPlan, versionInfo, projectRoot: process.cwd(), isWSL: wslFlag, serverConfig: getServerConfig(gitUser) });
           }
 
           // API: Serve a linked markdown document
           if (url.pathname === "/api/doc" && req.method === "GET") {
             return handleDoc(req);
+          }
+
+          // API: Update user config (write-back to ~/.plannotator/config.json)
+          if (url.pathname === "/api/config" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { displayName?: string };
+              if (body.displayName !== undefined) {
+                saveConfig({ displayName: body.displayName });
+              }
+              return Response.json({ ok: true });
+            } catch {
+              return Response.json({ error: "Invalid request" }, { status: 400 });
+            }
           }
 
           // API: Serve images (local paths or temp uploads)
@@ -258,6 +341,11 @@ export async function startPlannotatorServer(
             return handleObsidianDoc(req);
           }
 
+          // API: List markdown files in a directory as a tree
+          if (url.pathname === "/api/reference/files" && req.method === "GET") {
+            return handleFileBrowserFiles(req);
+          }
+
           // API: Get available agents (OpenCode only)
           if (url.pathname === "/api/agents") {
             return handleAgents(options.opencodeClient);
@@ -271,7 +359,7 @@ export async function startPlannotatorServer(
           }
 
           // API: Editor annotations (VS Code extension)
-          const editorResponse = await editorAnnotations.handle(req, url);
+          const editorResponse = await editorAnnotations?.handle(req, url);
           if (editorResponse) return editorResponse;
 
           // API: Save to notes (decoupled from approve/deny)
@@ -460,18 +548,20 @@ export async function startPlannotatorServer(
     throw new Error("Failed to start server");
   }
 
-  const serverUrl = `http://localhost:${server.port}`;
+  const port = server.port!;
+  const serverUrl = `http://localhost:${port}`;
 
   // Notify caller that server is ready
   if (onReady) {
-    onReady(serverUrl, isRemote, server.port);
+    onReady(serverUrl, isRemote, port);
   }
 
   return {
-    port: server.port,
+    port,
     url: serverUrl,
     isRemote,
     waitForDecision: () => decisionPromise,
+    ...(donePromise && { waitForDone: () => donePromise }),
     stop: () => server.stop(),
   };
 }

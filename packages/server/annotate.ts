@@ -14,9 +14,11 @@
 import { isRemoteSession, getServerPort } from "./remote";
 import { getRepoInfo } from "./repo";
 import { handleImage, handleUpload, handleServerReady, handleDraftSave, handleDraftLoad, handleDraftDelete, handleFavicon } from "./shared-handlers";
-import { handleDoc } from "./reference-handlers";
+import { handleDoc, handleFileBrowserFiles } from "./reference-handlers";
 import { contentHash, deleteDraft } from "./draft";
+import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { dirname } from "path";
+import { isWSL } from "./browser";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -34,12 +36,16 @@ export interface AnnotateServerOptions {
   htmlContent: string;
   /** Origin identifier for UI customization */
   origin?: "opencode" | "claude-code" | "pi" | "codex";
-  /** UI mode: "annotate" for files, "annotate-last" for last agent message */
-  mode?: "annotate" | "annotate-last";
+  /** UI mode: "annotate" for files, "annotate-last" for last agent message, "annotate-folder" for folders */
+  mode?: "annotate" | "annotate-last" | "annotate-folder";
+  /** Folder path when annotating a directory (used as projectRoot for file browser) */
+  folderPath?: string;
   /** Whether URL sharing is enabled (default: true) */
   sharingEnabled?: boolean;
   /** Custom base URL for share links */
   shareBaseUrl?: string;
+  /** Base URL of the paste service API for short URL sharing */
+  pasteApiUrl?: string;
   /** Called when server starts with the URL, remote status, and port */
   onReady?: (url: string, isRemote: boolean, port: number) => void;
 }
@@ -82,13 +88,17 @@ export async function startAnnotateServer(
     htmlContent,
     origin,
     mode = "annotate",
+    folderPath,
     sharingEnabled = true,
     shareBaseUrl,
+    pasteApiUrl,
     onReady,
   } = options;
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
+  const wslFlag = await isWSL();
+  const gitUser = detectGitUser();
   const draftKey = contentHash(markdown);
 
   // Detect repo info (cached for this session)
@@ -126,8 +136,25 @@ export async function startAnnotateServer(
               filePath,
               sharingEnabled,
               shareBaseUrl,
+              pasteApiUrl,
               repoInfo,
+              projectRoot: folderPath || process.cwd(),
+              isWSL: wslFlag,
+              serverConfig: getServerConfig(gitUser),
             });
+          }
+
+          // API: Update user config (write-back to ~/.plannotator/config.json)
+          if (url.pathname === "/api/config" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { displayName?: string };
+              if (body.displayName !== undefined) {
+                saveConfig({ displayName: body.displayName });
+              }
+              return Response.json({ ok: true });
+            } catch {
+              return Response.json({ error: "Invalid request" }, { status: 400 });
+            }
           }
 
           // API: Serve images (local paths or temp uploads)
@@ -144,6 +171,11 @@ export async function startAnnotateServer(
               return handleDoc(new Request(docUrl.toString()));
             }
             return handleDoc(req);
+          }
+
+          // API: List markdown files in a directory as a tree
+          if (url.pathname === "/api/reference/files" && req.method === "GET") {
+            return handleFileBrowserFiles(req);
           }
 
           // API: Upload image -> save to temp -> return path
@@ -219,15 +251,16 @@ export async function startAnnotateServer(
     throw new Error("Failed to start server");
   }
 
-  const serverUrl = `http://localhost:${server.port}`;
+  const port = server.port!;
+  const serverUrl = `http://localhost:${port}`;
 
   // Notify caller that server is ready
   if (onReady) {
-    onReady(serverUrl, isRemote, server.port);
+    onReady(serverUrl, isRemote, port);
   }
 
   return {
-    port: server.port,
+    port,
     url: serverUrl,
     isRemote,
     waitForDecision: () => decisionPromise,

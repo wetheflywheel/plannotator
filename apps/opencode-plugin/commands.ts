@@ -1,10 +1,15 @@
 /**
  * Command Handlers for OpenCode Plugin
  *
- * Handles /plannotator-review, /plannotator-annotate, and /plannotator-last
- * slash commands. Extracted from the event hook for modularity.
+ * Handles /plannotator-review, /plannotator-annotate, /plannotator-last,
+ * and /plannotator-archive slash commands. Extracted from the event hook
+ * for modularity.
  */
 
+import {
+  startPlannotatorServer,
+  handleServerReady,
+} from "@plannotator/server";
 import {
   startReviewServer,
   handleReviewServerReady,
@@ -14,8 +19,8 @@ import {
   handleAnnotateServerReady,
 } from "@plannotator/server/annotate";
 import { getGitContext, runGitDiffWithContext } from "@plannotator/server/git";
-import { parsePRUrl, checkGhAuth, fetchPR } from "@plannotator/server/pr";
-import { resolveMarkdownFile } from "@plannotator/server/resolve-file";
+import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
+import { resolveMarkdownFile } from "@plannotator/shared/resolve-file";
 
 /** Shared dependencies injected by the plugin */
 export interface CommandDeps {
@@ -44,28 +49,29 @@ export async function handleReviewCommand(
   let prMetadata: Awaited<ReturnType<typeof fetchPR>>["metadata"] | undefined;
 
   if (isPRMode) {
-    client.app.log({ level: "info", message: "Fetching PR for review..." });
-
     const prRef = parsePRUrl(urlArg);
     if (!prRef) {
-      client.app.log({ level: "error", message: `Invalid PR URL: ${urlArg}` });
+      client.app.log({ level: "error", message: `Invalid PR/MR URL: ${urlArg}` });
       return;
     }
 
+    client.app.log({ level: "info", message: `Fetching ${getMRLabel(prRef)} ${getMRNumberLabel(prRef)} from ${getDisplayRepo(prRef)}...` });
+
     try {
-      await checkGhAuth();
+      await checkPRAuth(prRef);
     } catch (err) {
-      client.app.log({ level: "error", message: err instanceof Error ? err.message : "GitHub CLI auth check failed" });
+      const cliName = getCliName(prRef);
+      client.app.log({ level: "error", message: err instanceof Error ? err.message : `${cliName} auth check failed` });
       return;
     }
 
     try {
       const pr = await fetchPR(prRef);
       rawPatch = pr.rawPatch;
-      gitRef = `PR #${prRef.number}`;
+      gitRef = `${getMRLabel(prRef)} ${getMRNumberLabel(prRef)}`;
       prMetadata = pr.metadata;
     } catch (err) {
-      client.app.log({ level: "error", message: err instanceof Error ? err.message : "Failed to fetch PR" });
+      client.app.log({ level: "error", message: err instanceof Error ? err.message : `Failed to fetch ${getMRLabel(prRef)} ${getMRNumberLabel(prRef)}` });
       return;
     }
   } else {
@@ -109,7 +115,7 @@ export async function handleReviewCommand(
         ? "# Code Review\n\nCode review completed — no changes requested."
         : isPRMode
           ? result.feedback
-          : `# Code Review Feedback\n\n${result.feedback}\n\nPlease address this feedback.`;
+          : `${result.feedback}\n\nPlease address this feedback.`;
 
       try {
         await client.session.prompt({
@@ -261,4 +267,29 @@ export async function handleAnnotateLastCommand(
   server.stop();
 
   return result.feedback || null;
+}
+
+export async function handleArchiveCommand(
+  event: any,
+  deps: CommandDeps
+) {
+  const { client, htmlContent, getSharingEnabled, getShareBaseUrl } = deps;
+
+  client.app.log({ level: "info", message: "Opening plan archive..." });
+
+  const server = await startPlannotatorServer({
+    plan: "",
+    origin: "opencode",
+    mode: "archive",
+    sharingEnabled: await getSharingEnabled(),
+    shareBaseUrl: getShareBaseUrl(),
+    htmlContent,
+    onReady: handleServerReady,
+  });
+
+  if (server.waitForDone) {
+    await server.waitForDone();
+  }
+  await Bun.sleep(1500);
+  server.stop();
 }

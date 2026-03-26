@@ -10,6 +10,7 @@ import { mkdirSync } from "fs";
 import { openBrowser } from "./browser";
 import { validateImagePath, validateUploadExtension, UPLOAD_DIR } from "./image";
 import { saveDraft, loadDraft, deleteDraft } from "./draft";
+import { FAVICON_SVG } from "@plannotator/shared/favicon";
 
 /** Serve images from local paths or temp uploads. Used by all 3 servers. */
 export async function handleImage(req: Request): Promise<Response> {
@@ -125,11 +126,7 @@ export function handleDraftDelete(contentKey: string): Response {
   return Response.json({ ok: true });
 }
 
-const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#070b14"/>
-  <rect x="12" y="28" width="40" height="14" rx="3" fill="#E0BA55" opacity="0.35"/>
-  <text x="32" y="46" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-weight="800" font-size="42" fill="white">P</text>
-</svg>`;
+
 
 /** Serve the app favicon. Used by all 3 servers. */
 export function handleFavicon(): Response {

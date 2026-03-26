@@ -30,8 +30,8 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
   const fileCommentRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="sticky top-0 z-10 px-4 py-2 bg-card/95 backdrop-blur border-b border-border flex items-center justify-between">
-      <span className="font-mono text-sm text-foreground">{filePath}</span>
+    <div className="flex-shrink-0 px-4 bg-card border-b border-border flex items-center justify-between" style={{ height: 'var(--panel-header-h)' }}>
+      <span className="text-xs font-semibold text-foreground">{filePath}</span>
       <div className="flex items-center gap-2">
         {onToggleViewed && (
           <button

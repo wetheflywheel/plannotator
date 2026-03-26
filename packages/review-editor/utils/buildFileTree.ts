@@ -1,10 +1,4 @@
-interface DiffFile {
-  path: string;
-  oldPath?: string;
-  patch: string;
-  additions: number;
-  deletions: number;
-}
+import type { DiffFile } from '../types';
 
 export interface FileTreeNode {
   type: 'file' | 'folder';

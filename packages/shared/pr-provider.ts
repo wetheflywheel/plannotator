@@ -1,11 +1,17 @@
 /**
  * Runtime-agnostic PR provider shared by Bun runtimes and Pi.
  *
+ * Dispatches to platform-specific implementations (GitHub, GitLab)
+ * based on the `platform` field in PRRef/PRMetadata.
+ *
  * Same pattern as review-core.ts: a runtime interface abstracts subprocess
  * execution so the logic is reusable across Bun and Node/jiti.
  */
 
-// --- Types ---
+import { checkGhAuth, getGhUser, fetchGhPR, fetchGhPRContext, fetchGhPRFileContent, submitGhPRReview, fetchGhPRViewedFiles, markGhFilesViewed } from "./pr-github";
+import { checkGlAuth, getGlUser, fetchGlMR, fetchGlMRContext, fetchGlFileContent, submitGlMRReview } from "./pr-gitlab";
+
+// --- Runtime Types ---
 
 export interface CommandResult {
   stdout: string;
@@ -18,20 +24,44 @@ export interface PRRuntime {
     cmd: string,
     args: string[],
   ) => Promise<CommandResult>;
+  runCommandWithInput?: (
+    cmd: string,
+    args: string[],
+    input: string,
+  ) => Promise<CommandResult>;
 }
 
-export interface PRRef {
+// --- Platform Types ---
+
+export type Platform = "github" | "gitlab";
+
+/** GitHub PR reference */
+export interface GithubPRRef {
   platform: "github";
   owner: string;
   repo: string;
   number: number;
 }
 
-export interface PRMetadata {
+/** GitLab MR reference */
+export interface GitlabMRRef {
+  platform: "gitlab";
+  host: string;
+  projectPath: string;
+  iid: number;
+}
+
+/** Discriminated union — auto-detected from URL */
+export type PRRef = GithubPRRef | GitlabMRRef;
+
+/** GitHub PR metadata */
+export interface GithubPRMetadata {
   platform: "github";
   owner: string;
   repo: string;
   number: number;
+  /** GraphQL node ID for the PR — used for markFileAsViewed mutations */
+  prNodeId?: string;
   title: string;
   author: string;
   baseBranch: string;
@@ -41,15 +71,140 @@ export interface PRMetadata {
   url: string;
 }
 
+/** GitLab MR metadata */
+export interface GitlabMRMetadata {
+  platform: "gitlab";
+  host: string;
+  projectPath: string;
+  iid: number;
+  title: string;
+  author: string;
+  baseBranch: string;
+  headBranch: string;
+  baseSha: string;
+  headSha: string;
+  url: string;
+}
+
+/** Discriminated union — downstream gets type narrowing for free */
+export type PRMetadata = GithubPRMetadata | GitlabMRMetadata;
+
+// --- PR Context Types (platform-agnostic) ---
+
+export interface PRComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
+export interface PRReview {
+  id: string;
+  author: string;
+  state: string;
+  body: string;
+  submittedAt: string;
+}
+
+export interface PRCheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  workflowName: string;
+  detailsUrl: string;
+}
+
+export interface PRLinkedIssue {
+  number: number;
+  url: string;
+  repo: string;
+}
+
+export interface PRContext {
+  body: string;
+  state: string;
+  isDraft: boolean;
+  labels: Array<{ name: string; color: string }>;
+  reviewDecision: string;
+  mergeable: string;
+  mergeStateStatus: string;
+  comments: PRComment[];
+  reviews: PRReview[];
+  checks: PRCheck[];
+  linkedIssues: PRLinkedIssue[];
+}
+
+export interface PRReviewFileComment {
+  path: string;
+  line: number;
+  side: "LEFT" | "RIGHT";
+  body: string;
+  start_line?: number;
+  start_side?: "LEFT" | "RIGHT";
+}
+
+// --- Label Helpers ---
+// Accept either PRRef or PRMetadata (both have `platform` discriminant)
+
+type HasPlatform = PRRef | PRMetadata;
+
+/** "GitHub" or "GitLab" */
+export function getPlatformLabel(m: HasPlatform): string {
+  return m.platform === "github" ? "GitHub" : "GitLab";
+}
+
+/** "PR" or "MR" */
+export function getMRLabel(m: HasPlatform): string {
+  return m.platform === "github" ? "PR" : "MR";
+}
+
+/** "#123" or "!42" */
+export function getMRNumberLabel(m: HasPlatform): string {
+  if (m.platform === "github") return `#${m.number}`;
+  return `!${m.iid}`;
+}
+
+/** "owner/repo" or "group/project" */
+export function getDisplayRepo(m: HasPlatform): string {
+  if (m.platform === "github") return `${m.owner}/${m.repo}`;
+  return m.projectPath;
+}
+
+/** Reconstruct a PRRef from metadata */
+export function prRefFromMetadata(m: PRMetadata): PRRef {
+  if (m.platform === "github") {
+    return { platform: "github", owner: m.owner, repo: m.repo, number: m.number };
+  }
+  return { platform: "gitlab", host: m.host, projectPath: m.projectPath, iid: m.iid };
+}
+
+/** CLI tool name for the platform */
+export function getCliName(ref: PRRef): string {
+  return ref.platform === "github" ? "gh" : "glab";
+}
+
+/** Install URL for the platform CLI */
+export function getCliInstallUrl(ref: PRRef): string {
+  return ref.platform === "github"
+    ? "https://cli.github.com"
+    : "https://gitlab.com/gitlab-org/cli";
+}
+
+/** Encode a file path for use in platform API URLs */
+export function encodeApiFilePath(filePath: string): string {
+  return encodeURIComponent(filePath);
+}
+
 // --- URL Parsing ---
 
 /**
- * Parse a PR URL into its components.
+ * Parse a PR/MR URL into its components. Auto-detects platform.
  *
  * Handles:
- * - https://github.com/owner/repo/pull/123
- * - https://github.com/owner/repo/pull/123/files
- * - https://github.com/owner/repo/pull/123/commits
+ * - GitHub: https://github.com/owner/repo/pull/123[/files|/commits]
+ * - GitLab: https://gitlab.com/group/subgroup/project/-/merge_requests/42[/diffs]
+ * - Self-hosted GitLab: https://gitlab.mycompany.com/group/project/-/merge_requests/42
  */
 export function parsePRUrl(url: string): PRRef | null {
   if (!url) return null;
@@ -67,82 +222,50 @@ export function parsePRUrl(url: string): PRRef | null {
     };
   }
 
+  // GitLab: https://{host}/{projectPath}/-/merge_requests/{iid}[/...]
+  // Handles any hostname, nested groups, self-hosted instances
+  const glMatch = url.match(
+    /^https?:\/\/([^/]+)\/(.+?)\/-\/merge_requests\/(\d+)/,
+  );
+  if (glMatch) {
+    return {
+      platform: "gitlab",
+      host: glMatch[1],
+      projectPath: glMatch[2],
+      iid: parseInt(glMatch[3], 10),
+    };
+  }
+
   return null;
 }
 
-// --- Auth ---
+// --- Dispatch Functions ---
 
-export async function checkGhAuth(runtime: PRRuntime): Promise<void> {
-  const result = await runtime.runCommand("gh", ["auth", "status"]);
-  if (result.exitCode !== 0) {
-    const stderr = result.stderr.trim();
-    throw new Error(
-      `GitHub CLI not authenticated. Run \`gh auth login\` first.\n${stderr}`,
-    );
-  }
+export async function checkAuth(runtime: PRRuntime, ref: PRRef): Promise<void> {
+  if (ref.platform === "github") return checkGhAuth(runtime);
+  return checkGlAuth(runtime, ref.host);
 }
 
-// --- Fetch PR ---
+export async function getUser(runtime: PRRuntime, ref: PRRef): Promise<string | null> {
+  if (ref.platform === "github") return getGhUser(runtime);
+  return getGlUser(runtime, ref.host);
+}
 
 export async function fetchPR(
   runtime: PRRuntime,
   ref: PRRef,
 ): Promise<{ metadata: PRMetadata; rawPatch: string }> {
-  const repo = `${ref.owner}/${ref.repo}`;
-
-  // Fetch diff and metadata in parallel
-  const [diffResult, viewResult] = await Promise.all([
-    runtime.runCommand("gh", [
-      "pr", "diff", String(ref.number),
-      "--repo", repo,
-    ]),
-    runtime.runCommand("gh", [
-      "pr", "view", String(ref.number),
-      "--repo", repo,
-      "--json", "title,author,baseRefName,headRefName,baseRefOid,headRefOid,url",
-    ]),
-  ]);
-
-  if (diffResult.exitCode !== 0) {
-    throw new Error(
-      `Failed to fetch PR diff: ${diffResult.stderr.trim() || `exit code ${diffResult.exitCode}`}`,
-    );
-  }
-
-  if (viewResult.exitCode !== 0) {
-    throw new Error(
-      `Failed to fetch PR metadata: ${viewResult.stderr.trim() || `exit code ${viewResult.exitCode}`}`,
-    );
-  }
-
-  const raw = JSON.parse(viewResult.stdout) as {
-    title: string;
-    author: { login: string };
-    baseRefName: string;
-    headRefName: string;
-    baseRefOid: string;
-    headRefOid: string;
-    url: string;
-  };
-
-  const metadata: PRMetadata = {
-    platform: "github",
-    owner: ref.owner,
-    repo: ref.repo,
-    number: ref.number,
-    title: raw.title,
-    author: raw.author.login,
-    baseBranch: raw.baseRefName,
-    headBranch: raw.headRefName,
-    baseSha: raw.baseRefOid,
-    headSha: raw.headRefOid,
-    url: raw.url,
-  };
-
-  return { metadata, rawPatch: diffResult.stdout };
+  if (ref.platform === "github") return fetchGhPR(runtime, ref);
+  return fetchGlMR(runtime, ref);
 }
 
-// --- File Content ---
+export async function fetchPRContext(
+  runtime: PRRuntime,
+  ref: PRRef,
+): Promise<PRContext> {
+  if (ref.platform === "github") return fetchGhPRContext(runtime, ref);
+  return fetchGlMRContext(runtime, ref);
+}
 
 export async function fetchPRFileContent(
   runtime: PRRuntime,
@@ -150,22 +273,47 @@ export async function fetchPRFileContent(
   sha: string,
   filePath: string,
 ): Promise<string | null> {
-  const result = await runtime.runCommand("gh", [
-    "api",
-    `repos/${ref.owner}/${ref.repo}/contents/${filePath}?ref=${sha}`,
-    "--jq", ".content",
-  ]);
+  if (ref.platform === "github") return fetchGhPRFileContent(runtime, ref, sha, filePath);
+  return fetchGlFileContent(runtime, ref, sha, filePath);
+}
 
-  if (result.exitCode !== 0) return null;
+export async function submitPRReview(
+  runtime: PRRuntime,
+  ref: PRRef,
+  headSha: string,
+  action: "approve" | "comment",
+  body: string,
+  fileComments: PRReviewFileComment[],
+): Promise<void> {
+  if (ref.platform === "github") return submitGhPRReview(runtime, ref, headSha, action, body, fileComments);
+  return submitGlMRReview(runtime, ref, headSha, action, body, fileComments);
+}
 
-  const base64Content = result.stdout.trim();
-  if (!base64Content) return null;
+/**
+ * Fetch per-file "viewed" state for a PR.
+ * GitHub: returns { filePath: isViewed } map.
+ * GitLab: always returns {} (no server-side viewed state API).
+ */
+export async function fetchPRViewedFiles(
+  runtime: PRRuntime,
+  ref: PRRef,
+): Promise<Record<string, boolean>> {
+  if (ref.platform === "github") return fetchGhPRViewedFiles(runtime, ref);
+  return {}; // GitLab has no server-side viewed state
+}
 
-  // GitHub returns base64-encoded content with newlines
-  const cleaned = base64Content.replace(/\n/g, "");
-  try {
-    return Buffer.from(cleaned, "base64").toString("utf-8");
-  } catch {
-    return null;
-  }
+/**
+ * Mark or unmark files as viewed in a PR.
+ * GitHub: fires markFileAsViewed / unmarkFileAsViewed GraphQL mutations.
+ * GitLab: no-op (no server-side viewed state API).
+ */
+export async function markPRFilesViewed(
+  runtime: PRRuntime,
+  ref: PRRef,
+  prNodeId: string,
+  filePaths: string[],
+  viewed: boolean,
+): Promise<void> {
+  if (ref.platform === "github") return markGhFilesViewed(runtime, ref, prNodeId, filePaths, viewed);
+  // GitLab: no-op
 }

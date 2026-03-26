@@ -11,7 +11,7 @@ plannotator/
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── commands/             # Slash commands (plannotator-review.md, plannotator-annotate.md)
 │   │   ├── hooks/hooks.json      # PermissionRequest hook config
-│   │   ├── server/index.ts       # Entry point (plan + review + annotate subcommands)
+│   │   ├── server/index.ts       # Entry point (plan + review + annotate + archive subcommands)
 │   │   └── dist/                 # Built single-file apps (index.html, review.html)
 │   ├── opencode-plugin/          # OpenCode plugin
 │   │   ├── commands/             # Slash commands (plannotator-review.md, plannotator-annotate.md)
@@ -37,11 +37,11 @@ plannotator/
 │   │   ├── index.ts              # startPlannotatorServer(), handleServerReady()
 │   │   ├── review.ts             # startReviewServer(), handleReviewServerReady()
 │   │   ├── annotate.ts           # startAnnotateServer(), handleAnnotateServerReady()
-│   │   ├── storage.ts            # Plan saving to disk (getPlanDir, savePlan, etc.)
+│   │   ├── storage.ts            # Re-exports from @plannotator/shared/storage
 │   │   ├── share-url.ts          # Server-side share URL generation for remote sessions
 │   │   ├── remote.ts             # isRemoteSession(), getServerPort()
 │   │   ├── browser.ts            # openBrowser()
-│   │   ├── draft.ts              # Annotation draft persistence (~/.plannotator/drafts/)
+│   │   ├── draft.ts              # Re-exports from @plannotator/shared/draft
 │   │   ├── integrations.ts       # Obsidian, Bear integrations
 │   │   ├── ide.ts                # VS Code diff integration (openEditorDiff)
 │   │   ├── editor-annotations.ts  # VS Code editor annotation endpoints
@@ -50,11 +50,15 @@ plannotator/
 │   │   ├── theme.css             # Single source of truth for color tokens + Tailwind bridge
 │   │   ├── components/           # Viewer, Toolbar, Settings, etc.
 │   │   │   ├── plan-diff/        # PlanDiffBadge, PlanDiffViewer, clean/raw diff views
-│   │   │   └── sidebar/          # SidebarContainer, SidebarTabs, VersionBrowser
+│   │   │   └── sidebar/          # SidebarContainer, SidebarTabs, VersionBrowser, ArchiveBrowser
 │   │   ├── utils/                # parser.ts, sharing.ts, storage.ts, planSave.ts, agentSwitch.ts, planDiffEngine.ts
-│   │   ├── hooks/                # useAnnotationHighlighter.ts, useSharing.ts, usePlanDiff.ts, useSidebar.ts, useLinkedDoc.ts, useAnnotationDraft.ts, useCodeAnnotationDraft.ts
+│   │   ├── hooks/                # useAnnotationHighlighter.ts, useSharing.ts, usePlanDiff.ts, useSidebar.ts, useLinkedDoc.ts, useAnnotationDraft.ts, useCodeAnnotationDraft.ts, useArchive.ts
 │   │   └── types.ts
-│   ├── shared/                   # Shared types, utilities, and cross-package logic
+│   ├── ai/                       # Provider-agnostic AI backbone (providers, sessions, endpoints)
+│   ├── shared/                   # Shared types, utilities, and cross-runtime logic
+│   │   ├── storage.ts            # Plan saving, version history, archive listing (node:fs only)
+│   │   ├── draft.ts              # Annotation draft persistence (node:fs only)
+│   │   └── project.ts            # Pure string helpers (sanitizeTag, extractRepoName, extractDirName)
 │   ├── editor/                   # Plan review App.tsx
 │   └── review-editor/            # Code review UI
 │       ├── App.tsx               # Main review app
@@ -150,16 +154,34 @@ User annotates markdown, provides feedback
 Send Annotations → feedback sent to agent session
 ```
 
+## Archive Flow
+
+```
+User runs plannotator archive (CLI) or /plannotator-archive (Pi)
+        ↓
+Server starts in mode:"archive", reads ~/.plannotator/plans/
+        ↓
+Browser opens read-only archive viewer (sharing disabled)
+        ↓
+User browses saved plan decisions with approved/denied badges
+        ↓
+Done → POST /api/done closes the browser
+```
+
+During normal plan review, an Archive sidebar tab provides the same browsing via linked doc overlay without leaving the current session.
+
 ## Server API
 
 ### Plan Server (`packages/server/index.ts`)
 
 | Endpoint              | Method | Purpose                                    |
 | --------------------- | ------ | ------------------------------------------ |
-| `/api/plan`           | GET    | Returns `{ plan, origin, previousPlan, versionInfo }` |
+| `/api/plan`           | GET    | Returns `{ plan, origin, previousPlan, versionInfo }` (plan mode) or `{ plan, origin, mode: "archive", archivePlans }` (archive mode) |
 | `/api/plan/version`   | GET    | Fetch specific version (`?v=N`)            |
 | `/api/plan/versions`  | GET    | List all versions of current plan          |
-| `/api/plan/history`   | GET    | List all plans in current project          |
+| `/api/archive/plans`  | GET    | List archived plan decisions (`?customPath=`) |
+| `/api/archive/plan`   | GET    | Fetch archived plan content (`?filename=&customPath=`) |
+| `/api/done`           | POST   | Close archive browser (archive mode only)  |
 | `/api/approve`        | POST   | Approve plan (body: planSave, agentSwitch, obsidian, bear, feedback) |
 | `/api/deny`           | POST   | Deny plan (body: feedback, planSave)       |
 | `/api/image`          | GET    | Serve image by path query param            |
@@ -186,6 +208,12 @@ Send Annotations → feedback sent to agent session
 | `/api/draft`          | GET/POST/DELETE | Auto-save annotation drafts to survive server crashes |
 | `/api/editor-annotations` | GET | List editor annotations (VS Code only) |
 | `/api/editor-annotation` | POST/DELETE | Add or remove an editor annotation (VS Code only) |
+| `/api/ai/capabilities` | GET | Check if AI features are available |
+| `/api/ai/session` | POST | Create or fork an AI session |
+| `/api/ai/query` | POST | Send a message and stream the response (SSE) |
+| `/api/ai/abort` | POST | Abort the current query |
+| `/api/ai/permission` | POST | Respond to a permission request |
+| `/api/ai/sessions` | GET | List active sessions |
 
 ### Annotate Server (`packages/server/annotate.ts`)
 
@@ -212,9 +240,9 @@ Runs as a separate service on port `19433` (self-hosted) or as a Cloudflare Work
 
 Every plan is automatically saved to `~/.plannotator/history/{project}/{slug}/` on arrival, before the user sees the UI. Versions are numbered sequentially (`001.md`, `002.md`, etc.). The slug is derived from the plan's first `# Heading` + today's date via `generateSlug()`, scoped by project name (git repo or cwd). Same heading on the same day = same slug = same plan being iterated on. Identical resubmissions are deduplicated (no new file if content matches the latest version).
 
-This powers the version history API (`/api/plan/version`, `/api/plan/versions`, `/api/plan/history`) and the plan diff system.
+This powers the version history API (`/api/plan/version`, `/api/plan/versions`) and the plan diff system.
 
-History saves independently of the `planSave` user setting (which controls decision snapshots in `~/.plannotator/plans/`). Storage functions live in `packages/server/storage.ts`, with Node-compatible duplicates in `apps/pi-extension/server.ts`. Slug format: `{sanitized-heading}-YYYY-MM-DD` (heading first for readability).
+History saves independently of the `planSave` user setting (which controls decision snapshots in `~/.plannotator/plans/`). Storage functions live in `packages/shared/storage.ts` (runtime-agnostic, re-exported by `packages/server/storage.ts`). Pi copies the shared files at build time. Slug format: `{sanitized-heading}-YYYY-MM-DD` (heading first for readability).
 
 ## Plan Diff
 
@@ -232,7 +260,7 @@ When a user denies a plan and Claude resubmits, the UI shows what changed betwee
 
 **Annotation hook** (`packages/ui/hooks/useAnnotationHighlighter.ts`): Annotation infrastructure used by `Viewer.tsx`. Manages web-highlighter lifecycle, toolbar/popover state, annotation creation, text-based restoration, and scroll-to-selected. The diff view uses its own block-level hover system instead.
 
-**Sidebar** (`packages/ui/hooks/useSidebar.ts`): Shared left sidebar with two tabs — Table of Contents and Version Browser. The "Auto-open Sidebar" setting controls whether it opens on load (TOC tab only).
+**Sidebar** (`packages/ui/hooks/useSidebar.ts`): Shared left sidebar with three tabs — Table of Contents, Version Browser, and Archive. The "Auto-open Sidebar" setting controls whether it opens on load (TOC tab only). In archive mode, the sidebar opens to the Archive tab automatically.
 
 ## Data Types
 
@@ -384,10 +412,19 @@ bun run package:vscode   # Package .vsix for marketplace
 bun run build            # Build hook + opencode (main targets)
 ```
 
-**Important:** The OpenCode plugin copies pre-built HTML from `apps/hook/dist/` and `apps/review/dist/`. When making UI changes (in `packages/ui/`, `packages/editor/`, or `packages/review-editor/`), you must rebuild the hook/review first:
+**Important: Build order matters.** The hook build (`build:hook`) copies pre-built HTML from `apps/review/dist/`. If you change UI code in `packages/ui/`, `packages/editor/`, or `packages/review-editor/`, you **must** rebuild the review app first, then the hook:
 
 ```bash
-bun run build:hook && bun run build:opencode   # For UI changes
+bun run --cwd apps/review build && bun run build:hook   # For review UI changes
+bun run build:hook                                       # For plan UI changes only
+bun run build:hook && bun run build:opencode             # For OpenCode plugin
+```
+
+Running only `build:hook` after review-editor changes will copy stale HTML files. When testing locally with a compiled binary, the full sequence is:
+
+```bash
+bun run --cwd apps/review build && bun run build:hook && \
+  bun build apps/hook/server/index.ts --compile --outfile ~/.local/bin/plannotator
 ```
 
 Running only `build:opencode` will copy stale HTML files.

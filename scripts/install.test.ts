@@ -52,6 +52,14 @@ describe("install.sh", () => {
     expect(script).toContain('"command".*plannotator');
   });
 
+  test("installs skills via git sparse-checkout", () => {
+    expect(script).toContain("git clone --depth 1 --filter=blob:none --sparse");
+    expect(script).toContain("git sparse-checkout set apps/skills");
+    expect(script).toContain("CLAUDE_SKILLS_DIR");
+    expect(script).toContain("AGENTS_SKILLS_DIR");
+    expect(script).toContain('Skipping skills install (git not found)');
+  });
+
   test("installs slash commands for Claude Code and OpenCode", () => {
     expect(script).toContain("plannotator-review.md");
     expect(script).toContain("plannotator-annotate.md");
@@ -97,6 +105,14 @@ describe("install.ps1", () => {
     expect(script).toContain("DUPLICATE HOOK DETECTED");
   });
 
+  test("installs skills via git sparse-checkout", () => {
+    expect(script).toContain("git clone --depth 1 --filter=blob:none --sparse");
+    expect(script).toContain("git sparse-checkout set apps/skills");
+    expect(script).toContain("claudeSkillsDir");
+    expect(script).toContain("agentsSkillsDir");
+    expect(script).toContain('Skipping skills install (git not found)');
+  });
+
   test("installs slash commands", () => {
     expect(script).toContain("plannotator-review.md");
     expect(script).toContain("plannotator-annotate.md");
@@ -135,6 +151,14 @@ describe("install.cmd", () => {
 
   test("warns about duplicate hooks", () => {
     expect(script).toContain("DUPLICATE HOOK DETECTED");
+  });
+
+  test("installs skills via git sparse-checkout", () => {
+    expect(script).toContain("git clone --depth 1 --filter=blob:none --sparse");
+    expect(script).toContain("git sparse-checkout set apps/skills");
+    expect(script).toContain("CLAUDE_SKILLS_DIR");
+    expect(script).toContain("AGENTS_SKILLS_DIR");
+    expect(script).toContain("Skipping skills install");
   });
 
   test("installs slash commands", () => {

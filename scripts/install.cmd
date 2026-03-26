@@ -224,6 +224,45 @@ echo Address the annotation feedback above. The user has reviewed your last mess
 
 echo Installed /plannotator-last command to !CLAUDE_COMMANDS_DIR!\plannotator-last.md
 
+REM Install skills (requires git)
+where git >nul 2>&1
+if !ERRORLEVEL! equ 0 (
+    if defined CLAUDE_CONFIG_DIR (
+        set "CLAUDE_SKILLS_DIR=%CLAUDE_CONFIG_DIR%\skills"
+    ) else (
+        set "CLAUDE_SKILLS_DIR=%USERPROFILE%\.claude\skills"
+    )
+    if defined XDG_CONFIG_HOME (
+        set "AGENTS_SKILLS_DIR=%XDG_CONFIG_HOME%\agents\skills"
+    ) else (
+        set "AGENTS_SKILLS_DIR=%USERPROFILE%\.config\agents\skills"
+    )
+    set "SKILLS_TMP=%TEMP%\plannotator-skills-%RANDOM%"
+    mkdir "!SKILLS_TMP!" >nul 2>&1
+
+    git clone --depth 1 --filter=blob:none --sparse "https://github.com/!REPO!.git" --branch "!TAG!" "!SKILLS_TMP!\repo" >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        pushd "!SKILLS_TMP!\repo"
+        git sparse-checkout set apps/skills >nul 2>&1
+
+        if exist "apps\skills" (
+            if not exist "!CLAUDE_SKILLS_DIR!" mkdir "!CLAUDE_SKILLS_DIR!"
+            if not exist "!AGENTS_SKILLS_DIR!" mkdir "!AGENTS_SKILLS_DIR!"
+            xcopy /s /y /q "apps\skills\*" "!CLAUDE_SKILLS_DIR!\" >nul 2>&1
+            xcopy /s /y /q "apps\skills\*" "!AGENTS_SKILLS_DIR!\" >nul 2>&1
+            echo Installed skills to !CLAUDE_SKILLS_DIR!\ and !AGENTS_SKILLS_DIR!\
+        )
+
+        popd
+    ) else (
+        echo Skipping skills install ^(git sparse-checkout failed^)
+    )
+
+    rmdir /s /q "!SKILLS_TMP!" >nul 2>&1
+) else (
+    echo Skipping skills install ^(git not found^)
+)
+
 echo.
 echo Test the install:
 echo   echo {"tool_input":{"plan":"# Test Plan\\n\\nHello world"}} ^| plannotator

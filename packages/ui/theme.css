@@ -101,9 +101,11 @@ body {
   background: oklch(from var(--primary) l c h / 0.3);
 }
 
-/* Smooth transitions */
+/* Smooth transitions for theme switching and hover states.
+   Only color properties — transform/opacity are handled per-component
+   to avoid interfering with scroll compositing. */
 * {
-  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-property: color, background-color, border-color, box-shadow;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }

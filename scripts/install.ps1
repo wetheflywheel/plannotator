@@ -217,6 +217,39 @@ description: Annotate the last assistant message
 
 Write-Host "Installed /plannotator-last command to $opencodeCommandsDir\plannotator-last.md"
 
+# Install skills (requires git)
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    $claudeSkillsDir = if ($env:CLAUDE_CONFIG_DIR) { "$env:CLAUDE_CONFIG_DIR\skills" } else { "$env:USERPROFILE\.claude\skills" }
+    $agentsSkillsDir = if ($env:XDG_CONFIG_HOME) { "$env:XDG_CONFIG_HOME\agents\skills" } else { "$env:USERPROFILE\.config\agents\skills" }
+    $skillsTmp = Join-Path ([System.IO.Path]::GetTempPath()) "plannotator-skills-$(Get-Random)"
+    New-Item -ItemType Directory -Force -Path $skillsTmp | Out-Null
+
+    try {
+        git clone --depth 1 --filter=blob:none --sparse "https://github.com/$repo.git" --branch $latestTag "$skillsTmp\repo" 2>$null
+        Push-Location "$skillsTmp\repo"
+        git sparse-checkout set apps/skills 2>$null
+
+        if (Test-Path "apps\skills") {
+            $items = Get-ChildItem "apps\skills" -ErrorAction SilentlyContinue
+            if ($items) {
+                New-Item -ItemType Directory -Force -Path $claudeSkillsDir | Out-Null
+                New-Item -ItemType Directory -Force -Path $agentsSkillsDir | Out-Null
+                Copy-Item -Recurse -Force "apps\skills\*" $claudeSkillsDir
+                Copy-Item -Recurse -Force "apps\skills\*" $agentsSkillsDir
+                Write-Host "Installed skills to $claudeSkillsDir\ and $agentsSkillsDir\"
+            }
+        }
+
+        Pop-Location
+    } catch {
+        Write-Host "Skipping skills install (git sparse-checkout failed)"
+    }
+
+    Remove-Item -Recurse -Force $skillsTmp -ErrorAction SilentlyContinue
+} else {
+    Write-Host "Skipping skills install (git not found)"
+}
+
 Write-Host ""
 Write-Host "=========================================="
 Write-Host "  OPENCODE USERS"

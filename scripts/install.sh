@@ -213,6 +213,33 @@ COMMAND_EOF
 
 echo "Installed /plannotator-last command to ${OPENCODE_COMMANDS_DIR}/plannotator-last.md"
 
+# Install skills (requires git)
+if command -v git &>/dev/null; then
+    CLAUDE_SKILLS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"
+    AGENTS_SKILLS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agents/skills"
+    skills_tmp=$(mktemp -d)
+
+    if git clone --depth 1 --filter=blob:none --sparse \
+        "https://github.com/${REPO}.git" --branch "$latest_tag" "$skills_tmp/repo" 2>/dev/null && \
+        cd "$skills_tmp/repo" && git sparse-checkout set apps/skills 2>/dev/null; then
+
+        if [ -d "apps/skills" ] && [ "$(ls -A apps/skills 2>/dev/null)" ]; then
+            mkdir -p "$CLAUDE_SKILLS_DIR" "$AGENTS_SKILLS_DIR"
+            cp -r apps/skills/* "$CLAUDE_SKILLS_DIR/"
+            cp -r apps/skills/* "$AGENTS_SKILLS_DIR/"
+            echo "Installed skills to ${CLAUDE_SKILLS_DIR}/ and ${AGENTS_SKILLS_DIR}/"
+        fi
+
+        cd - >/dev/null
+    else
+        echo "Skipping skills install (git sparse-checkout failed)"
+    fi
+
+    rm -rf "$skills_tmp"
+else
+    echo "Skipping skills install (git not found)"
+fi
+
 echo ""
 echo "=========================================="
 echo "  OPENCODE USERS"

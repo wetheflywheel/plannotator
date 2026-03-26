@@ -15,7 +15,7 @@
  */
 
 import { readdirSync, statSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
 // --- Types ---
@@ -49,9 +49,8 @@ export interface RenderedMessage {
 
 /**
  * Derive the project slug from a working directory path.
- * Claude Code replaces all non-alphanumeric characters (except `-`) with `-`.
- * This handles dots (e.g. `.worktrees`), underscores (e.g. `feat_branch`),
- * slashes, and any other special characters in the path.
+ * Claude Code replaces every character outside [a-zA-Z0-9-] with `-`.
+ * On Windows it also lowercases drive letters (C: → c-).
  */
 export function projectSlugFromCwd(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9-]/g, "-");
@@ -90,11 +89,115 @@ export function findSessionLogs(projectDir: string): string[] {
 /**
  * Find session log candidates for a given working directory.
  * Returns all .jsonl paths sorted by mtime (most recent first).
+ *
+ * Tries the exact slug first, then a case-insensitive match. On Windows,
+ * Claude Code lowercases the entire slug (e.g. `C-Users-...` → `c-users-...`)
+ * while our cwd may have mixed case. The fallback scans the projects directory
+ * for a case-insensitive match.
  */
 export function findSessionLogsForCwd(cwd: string): string[] {
   const slug = projectSlugFromCwd(cwd);
-  const projectDir = join(homedir(), ".claude", "projects", slug);
-  return findSessionLogs(projectDir);
+  const projectsDir = join(homedir(), ".claude", "projects");
+  const projectDir = join(projectsDir, slug);
+
+  // Try exact match first
+  const logs = findSessionLogs(projectDir);
+  if (logs.length > 0) return logs;
+
+  // Fallback: case-insensitive directory scan (handles Windows drive letter casing)
+  const slugLower = slug.toLowerCase();
+  try {
+    const dirs = readdirSync(projectsDir);
+    for (const dir of dirs) {
+      if (dir.toLowerCase() === slugLower) {
+        const fallbackLogs = findSessionLogs(join(projectsDir, dir));
+        if (fallbackLogs.length > 0) return fallbackLogs;
+      }
+    }
+  } catch {
+    // projectsDir doesn't exist
+  }
+
+  return [];
+}
+
+// --- Session Metadata Resolution ---
+
+/**
+ * Claude Code writes per-process session metadata to:
+ *   ~/.claude/sessions/<pid>.json
+ *
+ * Each file contains:
+ *   { pid, sessionId, cwd, startedAt }
+ *
+ * This lets us deterministically resolve the correct session log
+ * when the shell CWD has diverged from the session's project directory
+ * (e.g. after the user runs `cd` during a session).
+ */
+
+interface SessionMetadata {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  startedAt: number;
+}
+
+/**
+ * Read a Claude Code session metadata file for a given PID.
+ * Returns null if the file doesn't exist or can't be parsed.
+ */
+function readSessionMetadata(pid: number): SessionMetadata | null {
+  const metaPath = join(homedir(), ".claude", "sessions", `${pid}.json`);
+  try {
+    return JSON.parse(readFileSync(metaPath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the session log path using Claude Code's session metadata.
+ *
+ * Strategy:
+ * 1. Read ~/.claude/sessions/<ppid>.json to get the exact sessionId and cwd.
+ * 2. Use findSessionLogsForCwd() with the session's original cwd (not the
+ *    current shell cwd), which handles case-insensitive slug matching on Windows.
+ * 3. Return the log matching the sessionId, or null.
+ *
+ * Returns null if session metadata is unavailable or the log file doesn't exist.
+ */
+export function resolveSessionLogByPpid(): string | null {
+  const ppid = process.ppid;
+  if (!ppid) return null;
+
+  const meta = readSessionMetadata(ppid);
+  if (!meta?.sessionId || !meta?.cwd) return null;
+
+  const candidates = findSessionLogsForCwd(meta.cwd);
+  return candidates.find((p) => p.includes(meta.sessionId)) ?? null;
+}
+
+/**
+ * Walk up the directory tree from `cwd` trying each ancestor as a project slug.
+ * Returns session logs from the first ancestor that has any, sorted by mtime.
+ *
+ * Used as a fallback when session metadata resolution (PPID) is unavailable.
+ * Stops at the filesystem root to avoid infinite loops.
+ */
+export function findSessionLogsByAncestorWalk(cwd: string): string[] {
+  let dir = dirname(cwd);
+  if (dir === cwd) return [];
+
+  while (true) {
+    const logs = findSessionLogsForCwd(dir);
+    if (logs.length > 0) return logs;
+
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return [];
 }
 
 // --- Log Parsing ---
@@ -265,7 +368,11 @@ export function extractLastRenderedMessage(
 export function getLastRenderedMessage(
   logPath: string,
 ): RenderedMessage | null {
-  const content = readFileSync(logPath, "utf-8");
-  const entries = parseSessionLog(content);
-  return extractLastRenderedMessage(entries, entries.length);
+  try {
+    const content = readFileSync(logPath, "utf-8");
+    const entries = parseSessionLog(content);
+    return extractLastRenderedMessage(entries, entries.length);
+  } catch {
+    return null;
+  }
 }
