@@ -49,10 +49,12 @@ export interface RenderedMessage {
 
 /**
  * Derive the project slug from a working directory path.
- * Claude Code uses the absolute path with `/` replaced by `-` (leading `-` kept).
+ * Claude Code replaces all non-alphanumeric characters (except `-`) with `-`.
+ * This handles dots (e.g. `.worktrees`), underscores (e.g. `feat_branch`),
+ * slashes, and any other special characters in the path.
  */
 export function projectSlugFromCwd(cwd: string): string {
-  return cwd.replace(/\//g, "-");
+  return cwd.replace(/[^a-zA-Z0-9-]/g, "-");
 }
 
 /**
