@@ -16,8 +16,10 @@ import { SuggestionModal } from './SuggestionModal';
 import { type ReviewSearchMatch } from '../utils/reviewSearch';
 import {
   applySearchHighlights,
+  clearSearchHighlights,
   getSearchRoots,
   retryScrollToSearchMatch,
+  swapActiveSearchHighlight,
 } from '../utils/reviewSearchHighlight';
 
 interface DiffViewerProps {
@@ -91,6 +93,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 }) => {
   const { theme, colorTheme, resolvedMode } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const activeSearchMatchIdRef = useRef(activeSearchMatchId);
+  activeSearchMatchIdRef.current = activeSearchMatchId;
   const [fileCommentAnchor, setFileCommentAnchor] = useState<HTMLElement | null>(null);
 
   // Resizable split pane — only applies when Pierre renders a two-column grid
@@ -204,17 +208,39 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     return () => clearTimeout(timeoutId);
   }, [selectedAnnotationId]);
 
-  // Apply search highlights to diff lines (including inside shadow DOM)
+  // Apply search highlights to diff lines (including inside shadow DOM).
+  // Debounced to collapse rapid keystrokes into a single DOM update.
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const frameId = requestAnimationFrame(() => {
-      const roots = getSearchRoots(containerRef.current!);
-      roots.forEach(root => applySearchHighlights(root, searchQuery, searchMatches, activeSearchMatchId));
-    });
+    const query = searchQuery;
+    const matches = searchMatches;
 
-    return () => cancelAnimationFrame(frameId);
-  }, [searchQuery, searchMatches, activeSearchMatchId, filePath, diffStyle, augmentedDiff]);
+    // Clear immediately when search is empty (no debounce for clearing)
+    if (!query.trim() || matches.length === 0) {
+      const roots = getSearchRoots(containerRef.current);
+      roots.forEach(root => clearSearchHighlights(root));
+      return;
+    }
+
+    // Debounce the full rebuild — 100ms collapses rapid keystrokes into one DOM update
+    const timeoutId = setTimeout(() => {
+      if (!containerRef.current) return;
+      const roots = getSearchRoots(containerRef.current);
+      roots.forEach(root =>
+        applySearchHighlights(root, query, matches, activeSearchMatchIdRef.current)
+      );
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, searchMatches, filePath, diffStyle]);
+
+  // Swap active search highlight instantly when stepping between matches.
+  // This avoids a full rebuild just to change two elements' background color.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    swapActiveSearchHighlight(containerRef.current, activeSearchMatchId);
+  }, [activeSearchMatchId]);
 
   // Scroll to active search match (with retry for lazy-rendered content)
   useEffect(() => {
