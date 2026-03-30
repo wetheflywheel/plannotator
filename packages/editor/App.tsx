@@ -13,7 +13,9 @@ import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolst
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
 import { Settings } from '@plannotator/ui/components/Settings';
+import { FeedbackButton, ApproveButton } from '@plannotator/ui/components/ToolbarButtons';
 import { useSharing } from '@plannotator/ui/hooks/useSharing';
+import { getCallbackConfig, CallbackAction, executeCallback, type ToastPayload } from '@plannotator/ui/utils/callback';
 import { useAgents } from '@plannotator/ui/hooks/useAgents';
 import { useActiveSection } from '@plannotator/ui/hooks/useActiveSection';
 import { storage } from '@plannotator/ui/utils/storage';
@@ -115,7 +117,7 @@ const App: React.FC = () => {
 
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [initialExportTab, setInitialExportTab] = useState<'share' | 'annotations' | 'notes'>();
-  const [noteSaveToast, setNoteSaveToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [noteSaveToast, setNoteSaveToast] = useState<ToastPayload>(null);
   const [isPlanDiffActive, setIsPlanDiffActive] = useState(false);
   const [planDiffMode, setPlanDiffMode] = useState<PlanDiffMode>('clean');
   const [previousPlan, setPreviousPlan] = useState<string | null>(null);
@@ -924,6 +926,29 @@ const App: React.FC = () => {
     return output;
   }, [blocks, allAnnotations, globalAttachments, linkedDocHook.getDocAnnotations, editorAnnotations]);
 
+  // Bot callback config — read once from URL search params (?cb=&ct=)
+  const callbackConfig = React.useMemo(() => getCallbackConfig(), []);
+
+  const callCallback = React.useCallback(async (action: CallbackAction) => {
+    if (!callbackConfig || isSubmitting || !shareUrl) return;
+    setIsSubmitting(true);
+    try {
+      const toast = await executeCallback(action, callbackConfig, shareUrl);
+      if (toast) {
+        setNoteSaveToast(toast);
+        setTimeout(() => setNoteSaveToast(null), 4000);
+        if (toast.type === 'success') {
+          setSubmitted(action === CallbackAction.Approve ? 'approved' : 'denied');
+        }
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [callbackConfig, isSubmitting, shareUrl]);
+
+  const handleCallbackApprove = React.useCallback(() => callCallback(CallbackAction.Approve), [callCallback]);
+  const handleCallbackFeedback = React.useCallback(() => callCallback(CallbackAction.Feedback), [callCallback]);
+
   // Quick-save handlers for export dropdown and keyboard shortcut
   const handleDownloadAnnotations = () => {
     setShowExportDropdown(false);
@@ -1109,6 +1134,25 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
+            {/* Bot callback buttons — only shown when ?cb=&ct= params are present */}
+            {callbackConfig && !isApiMode && isSharedSession && (
+              <>
+                <div className="w-px h-5 bg-border/50 mx-1 hidden md:block" />
+                <FeedbackButton
+                  onClick={handleCallbackFeedback}
+                  disabled={isSubmitting || !shareUrl}
+                  isLoading={isSubmitting}
+                  title="Send feedback to bot"
+                />
+                <ApproveButton
+                  onClick={handleCallbackApprove}
+                  disabled={isSubmitting || !shareUrl}
+                  isLoading={isSubmitting}
+                  title="Approve design and notify bot"
+                />
+              </>
+            )}
+
             {isApiMode && !linkedDocHook.isActive && archive.archiveMode && (
               <>
                 <button
@@ -1133,7 +1177,7 @@ const App: React.FC = () => {
 
             {isApiMode && !linkedDocHook.isActive && !archive.archiveMode && (
               <>
-                <button
+                <FeedbackButton
                   onClick={() => {
                     if (annotateMode) {
                       handleAnnotateFeedback();
@@ -1150,29 +1194,18 @@ const App: React.FC = () => {
                     }
                   }}
                   disabled={isSubmitting}
-                  className={`p-1.5 md:px-2.5 md:py-1 rounded-md text-xs font-medium transition-all ${
-                    isSubmitting
-                      ? 'opacity-50 cursor-not-allowed bg-muted text-muted-foreground'
-                      : 'bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30'
-                  }`}
+                  isLoading={isSubmitting}
+                  label={annotateMode ? (allAnnotations.length > 0 || editorAnnotations.length > 0 || linkedDocHook.docAnnotationCount > 0 ? 'Send Annotations' : 'Done') : 'Send Feedback'}
                   title={annotateMode ? (allAnnotations.length > 0 || editorAnnotations.length > 0 || linkedDocHook.docAnnotationCount > 0 ? 'Send Annotations' : 'Done') : 'Send Feedback'}
-                >
-                  <svg className="w-4 h-4 md:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  <span className="hidden md:inline">{isSubmitting ? 'Sending...' : annotateMode ? (allAnnotations.length > 0 || editorAnnotations.length > 0 || linkedDocHook.docAnnotationCount > 0 ? 'Send Annotations' : 'Done') : 'Send Feedback'}</span>
-                </button>
+                />
 
                 {!annotateMode && <div className="relative group/approve">
-                  <button
+                  <ApproveButton
                     onClick={() => {
-                      // Show warning for Claude Code users with annotations
                       if (origin === 'claude-code' && allAnnotations.length > 0) {
                         setShowClaudeCodeWarning(true);
                         return;
                       }
-
-                      // Check if agent exists for OpenCode users
                       if (origin === 'opencode') {
                         const warning = getAgentWarning();
                         if (warning) {
@@ -1181,21 +1214,12 @@ const App: React.FC = () => {
                           return;
                         }
                       }
-
                       handleApprove();
                     }}
                     disabled={isSubmitting}
-                    className={`px-2 py-1 md:px-2.5 rounded-md text-xs font-medium transition-all ${
-                      isSubmitting
-                        ? 'opacity-50 cursor-not-allowed bg-muted text-muted-foreground'
-                        : origin === 'claude-code' && allAnnotations.length > 0
-                          ? 'bg-success/50 text-success-foreground/70 hover:bg-success hover:text-success-foreground'
-                          : 'bg-success text-success-foreground hover:opacity-90'
-                    }`}
-                  >
-                    <span className="md:hidden">{isSubmitting ? '...' : 'OK'}</span>
-                    <span className="hidden md:inline">{isSubmitting ? 'Approving...' : 'Approve'}</span>
-                  </button>
+                    isLoading={isSubmitting}
+                    dimmed={origin === 'claude-code' && allAnnotations.length > 0}
+                  />
                   {origin === 'claude-code' && allAnnotations.length > 0 && (
                     <div className="absolute top-full right-0 mt-2 px-3 py-2 bg-popover border border-border rounded-lg shadow-xl text-xs text-foreground w-56 text-center opacity-0 invisible group-hover/approve:opacity-100 group-hover/approve:visible transition-all pointer-events-none z-50">
                       <div className="absolute bottom-full right-4 border-4 border-transparent border-b-border" />
