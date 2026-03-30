@@ -61,6 +61,9 @@ import type { PRMetadata } from '@plannotator/shared/pr-provider';
 import { altKey } from '@plannotator/ui/utils/platform';
 
 declare const __APP_VERSION__: string;
+declare const __GIT_BRANCH__: string;
+declare const __GIT_COMMIT__: string;
+declare const __CUSTOM_BUILD__: boolean;
 
 interface DiffData {
   files: DiffFile[];
@@ -1370,6 +1373,36 @@ const ReviewApp: React.FC = () => {
         {/* Header */}
         <header className="py-1 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
           <div className="min-w-0 flex items-center gap-2 md:gap-3">
+            <a
+              href="https://github.com/backnotprop/plannotator"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 md:gap-2 hover:opacity-80 transition-opacity"
+            >
+              <span className="text-sm font-semibold tracking-tight">Plannotator</span>
+            </a>
+            <a
+              href="https://github.com/backnotprop/plannotator/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground font-mono opacity-60 hidden md:inline hover:opacity-100 transition-opacity"
+              title={typeof __GIT_COMMIT__ !== 'undefined' ? `${typeof __GIT_BRANCH__ !== 'undefined' ? __GIT_BRANCH__ : ''}@${__GIT_COMMIT__}` : undefined}
+            >
+              v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'}
+              {typeof __GIT_COMMIT__ !== 'undefined' && (
+                <span className="opacity-50 ml-0.5">({typeof __GIT_BRANCH__ !== 'undefined' ? __GIT_BRANCH__ : ''}@{__GIT_COMMIT__})</span>
+              )}
+            </a>
+            {typeof __CUSTOM_BUILD__ !== 'undefined' && __CUSTOM_BUILD__ && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium hidden md:inline bg-amber-500/15 text-amber-500">
+                Custom Build
+              </span>
+            )}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium hidden md:inline ${
+              prMetadata ? 'bg-violet-500/15 text-violet-400' : 'bg-secondary/15 text-secondary'
+            }`}>
+              {prMetadata ? `${mrLabel} Review` : 'Code Review'}
+            </span>
             {prMetadata ? (
               <div className="min-w-0 flex items-center gap-2 md:gap-3">
                 {prMetadata && (gitContext || agentCwd) && (

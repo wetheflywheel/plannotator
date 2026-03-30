@@ -3,7 +3,16 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import tailwindcss from '@tailwindcss/vite';
+import { execSync } from 'child_process';
 import pkg from '../../package.json';
+
+function git(cmd: string): string {
+  try { return execSync(`git ${cmd}`, { encoding: 'utf8' }).trim(); } catch { return ''; }
+}
+const gitBranch = git('rev-parse --abbrev-ref HEAD');
+const gitCommit = git('rev-parse --short HEAD');
+const gitTag = git('describe --tags --exact-match HEAD');
+const isCustomBuild = !gitTag;
 
 export default defineConfig({
   server: {
@@ -12,6 +21,9 @@ export default defineConfig({
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __GIT_BRANCH__: JSON.stringify(gitBranch),
+    __GIT_COMMIT__: JSON.stringify(gitCommit),
+    __CUSTOM_BUILD__: JSON.stringify(isCustomBuild),
   },
   plugins: [react(), tailwindcss(), viteSingleFile()],
   resolve: {

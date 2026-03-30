@@ -1255,6 +1255,28 @@ const App: React.FC = () => {
             >
               <span className="text-sm font-semibold tracking-tight">Plannotator</span>
             </a>
+            <a
+              href="https://github.com/backnotprop/plannotator/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground font-mono opacity-60 hidden md:inline hover:opacity-100 transition-opacity"
+              title={typeof __GIT_COMMIT__ !== 'undefined' ? `${typeof __GIT_BRANCH__ !== 'undefined' ? __GIT_BRANCH__ : ''}@${__GIT_COMMIT__}` : undefined}
+            >
+              v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'}
+              {typeof __GIT_COMMIT__ !== 'undefined' && (
+                <span className="opacity-50 ml-0.5">({typeof __GIT_BRANCH__ !== 'undefined' ? __GIT_BRANCH__ : ''}@{__GIT_COMMIT__})</span>
+              )}
+            </a>
+            {typeof __CUSTOM_BUILD__ !== 'undefined' && __CUSTOM_BUILD__ && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium hidden md:inline bg-amber-500/15 text-amber-500">
+                Custom Build
+              </span>
+            )}
+            {origin && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium hidden md:inline ${getAgentBadge(origin)}`}>
+                {agentName}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
