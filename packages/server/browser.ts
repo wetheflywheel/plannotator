@@ -119,8 +119,14 @@ export async function openBrowser(
       }
     }
     return true;
-  } catch {
+  } catch (err) {
     // Shell-based open failed — try VS Code IPC registry as fallback
-    return tryVscodeIpc(url);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[plannotator] openBrowser failed to open URL: ${msg}`);
+    const ipcResult = await tryVscodeIpc(url);
+    if (!ipcResult) {
+      console.error(`[plannotator] VS Code IPC fallback also failed (registry not found at ${IPC_REGISTRY})`);
+    }
+    return ipcResult;
   }
 }

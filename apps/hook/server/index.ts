@@ -412,7 +412,7 @@ if (args[0] === "sessions") {
     htmlContent: reviewHtmlContent,
     onCleanup: worktreeCleanup,
     onReady: async (url, isRemote, port) => {
-      handleReviewServerReady(url, isRemote, port);
+      await handleReviewServerReady(url, isRemote, port);
 
       if (isRemote && sharingEnabled && rawPatch) {
         await writeRemoteShareLink(rawPatch, shareBaseUrl, "review changes", "diff only").catch(() => {});
@@ -574,7 +574,7 @@ if (args[0] === "sessions") {
     pasteApiUrl,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
-      handleAnnotateServerReady(url, isRemote, port);
+      await handleAnnotateServerReady(url, isRemote, port);
 
       if (isRemote && sharingEnabled && markdown) {
         await writeRemoteShareLink(markdown, shareBaseUrl, "annotate", "document only").catch(() => {});
@@ -743,8 +743,8 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     htmlContent: planHtmlContent,
-    onReady: (url, isRemote, port) => {
-      handleServerReady(url, isRemote, port);
+    onReady: async (url, isRemote, port) => {
+      await handleServerReady(url, isRemote, port);
     },
   });
 
@@ -806,7 +806,7 @@ if (args[0] === "sessions") {
     pasteApiUrl,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
-      handleServerReady(url, isRemote, port);
+      await handleServerReady(url, isRemote, port);
 
       if (isRemote && sharingEnabled) {
         await writeRemoteShareLink(planContent, shareBaseUrl, "review the plan", "plan only").catch(() => {});
@@ -889,7 +889,7 @@ if (args[0] === "sessions") {
     shareBaseUrl,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
-      handleAnnotateServerReady(url, isRemote, port);
+      await handleAnnotateServerReady(url, isRemote, port);
 
       if (isRemote && sharingEnabled) {
         await writeRemoteShareLink(msg.text, shareBaseUrl, "annotate", "message only").catch(() => {});
@@ -1003,7 +1003,7 @@ if (args[0] === "sessions") {
     pasteApiUrl,
     htmlContent: planHtmlContent,
     onReady: async (url, isRemote, port) => {
-      handleServerReady(url, isRemote, port);
+      await handleServerReady(url, isRemote, port);
 
       if (isRemote && sharingEnabled) {
         await writeRemoteShareLink(planContent, shareBaseUrl, "review the plan", "plan only").catch(() => {});
