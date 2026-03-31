@@ -56,7 +56,7 @@ interface ViewerProps {
   stickyActions?: boolean;
   onOpenLinkedDoc?: (path: string) => void;
   imageBaseDir?: string;
-  linkedDocInfo?: { filepath: string; onBack: () => void; label?: string } | null;
+  linkedDocInfo?: { filepath: string; onBack: () => void; label?: string; backLabel?: string } | null;
   // Plan diff props
   planDiffStats?: { additions: number; deletions: number; modifications: number } | null;
   isPlanDiffActive?: boolean;
@@ -499,7 +499,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
                   <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                   </svg>
-                  plan
+                  {linkedDocInfo.backLabel || 'plan'}
                 </button>
                 <span className="px-1.5 py-0.5 bg-primary/10 text-primary/80 rounded">
                   {linkedDocInfo.label || 'Linked File'}

@@ -5,6 +5,7 @@ import {
   getAnnotationCountBySection,
   type TocItem,
 } from '../utils/annotationHelpers';
+import { CountBadge } from './sidebar/CountBadge';
 
 interface TableOfContentsProps {
   blocks: Block[];
@@ -15,6 +16,7 @@ interface TableOfContentsProps {
   style?: React.CSSProperties;
   linkedDocFilepath?: string | null;
   onLinkedDocBack?: () => void;
+  backLabel?: string;
 }
 
 interface TocItemProps {
@@ -88,12 +90,7 @@ function TocItemComponent({
               {item.content}
             </span>
             {item.annotationCount > 0 && (
-              <span
-                className="flex-shrink-0 bg-accent text-accent-foreground rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-medium"
-                title={`${item.annotationCount} annotation${item.annotationCount === 1 ? '' : 's'}`}
-              >
-                {item.annotationCount}
-              </span>
+              <CountBadge count={item.annotationCount} active={isActive} />
             )}
           </span>
         </button>
@@ -148,6 +145,7 @@ export function TableOfContents({
   style,
   linkedDocFilepath,
   onLinkedDocBack,
+  backLabel,
 }: TableOfContentsProps) {
   // Calculate annotation counts per section
   const annotationCounts = useMemo(
@@ -213,7 +211,7 @@ export function TableOfContents({
                   <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                   </svg>
-                  Back to plan
+                  Back to {backLabel || 'plan'}
                 </button>
               )}
             </div>
