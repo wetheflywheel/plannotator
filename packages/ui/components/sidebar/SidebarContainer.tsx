@@ -29,8 +29,11 @@ interface SidebarContainerProps {
   onTocNavigate: (blockId: string) => void;
   linkedDocFilepath?: string | null;
   onLinkedDocBack?: () => void;
+  backLabel?: string;
   // File Browser props
   showFilesTab?: boolean;
+  fileAnnotationCounts?: Map<string, number>;
+  highlightedFiles?: Set<string>;
   fileBrowser?: UseFileBrowserReturn;
   onFilesSelectFile?: (absolutePath: string, dirPath: string) => void;
   onFilesFetchAll?: () => void;
@@ -38,6 +41,8 @@ interface SidebarContainerProps {
   showVaultTab?: boolean;
   vaultPath?: string;
   vaultBrowser?: UseVaultBrowserReturn;
+  vaultAnnotationCounts?: Map<string, number>;
+  vaultHighlightedFiles?: Set<string>;
   onVaultSelectFile?: (relativePath: string) => void;
   onVaultFetchTree?: () => void;
   // Version Browser props
@@ -52,6 +57,9 @@ interface SidebarContainerProps {
   isSelectingVersion: boolean;
   fetchingVersion: number | null;
   onFetchVersions: () => void;
+  // Annotation indicators
+  hasFileAnnotations?: boolean;
+  hasVaultAnnotations?: boolean;
   // Archive Browser props
   showArchiveTab?: boolean;
   archivePlans: ArchivedPlan[];
@@ -71,13 +79,18 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
   onTocNavigate,
   linkedDocFilepath,
   onLinkedDocBack,
+  backLabel,
   showFilesTab,
+  fileAnnotationCounts,
+  highlightedFiles,
   fileBrowser,
   onFilesSelectFile,
   onFilesFetchAll,
   showVaultTab,
   vaultPath,
   vaultBrowser,
+  vaultAnnotationCounts,
+  vaultHighlightedFiles,
   onVaultSelectFile,
   onVaultFetchTree,
   versionInfo,
@@ -91,6 +104,8 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
   isSelectingVersion,
   fetchingVersion,
   onFetchVersions,
+  hasFileAnnotations,
+  hasVaultAnnotations,
   showArchiveTab,
   archivePlans,
   selectedArchiveFile,
@@ -164,6 +179,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
               </svg>
             }
             label="Files"
+            badge={hasFileAnnotations}
           />
         )}
         {showVaultTab && (
@@ -186,6 +202,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
               </svg>
             }
             label="Vault"
+            badge={hasVaultAnnotations}
           />
         )}
         {showArchiveTab && (
@@ -243,6 +260,7 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
             className="overflow-y-auto"
             linkedDocFilepath={linkedDocFilepath}
             onLinkedDocBack={onLinkedDocBack}
+            backLabel={backLabel}
           />
         )}
         {activeTab === "versions" && (
@@ -270,6 +288,8 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
             onSelectFile={onFilesSelectFile ?? (() => {})}
             activeFile={fileBrowser.activeFile}
             onFetchAll={onFilesFetchAll ?? (() => {})}
+            annotationCounts={fileAnnotationCounts}
+            highlightedFiles={highlightedFiles}
           />
         )}
         {activeTab === "vault" && showVaultTab && vaultPath && vaultBrowser && (
@@ -283,6 +303,8 @@ export const SidebarContainer: React.FC<SidebarContainerProps> = ({
             onSelectFile={onVaultSelectFile ?? (() => {})}
             activeFile={vaultBrowser.activeFile}
             onFetchTree={onVaultFetchTree ?? (() => {})}
+            annotationCounts={vaultAnnotationCounts}
+            highlightedFiles={vaultHighlightedFiles}
           />
         )}
         {activeTab === "archive" && showArchiveTab && (
@@ -303,10 +325,11 @@ const TabButton: React.FC<{
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
-}> = ({ active, onClick, icon, label }) => (
+  badge?: boolean;
+}> = ({ active, onClick, icon, label, badge }) => (
   <button
     onClick={onClick}
-    className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors min-w-0 shrink-0 ${
+    className={`relative flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors min-w-0 shrink-0 ${
       active
         ? "bg-primary/10 text-primary"
         : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -314,5 +337,8 @@ const TabButton: React.FC<{
   >
     {icon}
     {label}
+    {badge && (
+      <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-primary" />
+    )}
   </button>
 );
