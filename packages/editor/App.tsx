@@ -301,7 +301,7 @@ const App: React.FC = () => {
     if (fileBrowserDirs.length === 0) return allAnnotationCounts;
     const counts = new Map<string, number>();
     for (const [fp, count] of allAnnotationCounts) {
-      if (fileBrowserDirs.some(dir => fp.startsWith(dir + '/') || fp.startsWith(dir))) {
+      if (fileBrowserDirs.some(dir => fp.startsWith(dir + '/'))) {
         counts.set(fp, count);
       }
     }
@@ -340,6 +340,7 @@ const App: React.FC = () => {
 
   // Flash highlight for annotated files in the sidebar
   const [highlightedFiles, setHighlightedFiles] = useState<Set<string> | undefined>();
+  const flashTimerRef = React.useRef<ReturnType<typeof setTimeout>>();
   const handleFlashAnnotatedFiles = React.useCallback(() => {
     const filePaths = new Set(allAnnotationCounts.keys());
     if (filePaths.size === 0) return;
@@ -347,13 +348,15 @@ const App: React.FC = () => {
     if (!sidebar.isOpen || (sidebar.activeTab !== 'files' && sidebar.activeTab !== 'vault')) {
       sidebar.open(hasVaultAnnotations && !hasFileAnnotations ? 'vault' : 'files');
     }
+    // Cancel any pending clear from a previous flash
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
     // Clear first so re-triggering restarts the CSS animation
     setHighlightedFiles(undefined);
     requestAnimationFrame(() => {
       setHighlightedFiles(filePaths);
-      setTimeout(() => setHighlightedFiles(undefined), 1200);
+      flashTimerRef.current = setTimeout(() => setHighlightedFiles(undefined), 1200);
     });
-  }, [allAnnotationCounts, sidebar]);
+  }, [allAnnotationCounts, sidebar, hasVaultAnnotations, hasFileAnnotations]);
 
   // Derive vault-relative highlighted files for VaultBrowser
   const vaultHighlightedFiles = useMemo(() => {
