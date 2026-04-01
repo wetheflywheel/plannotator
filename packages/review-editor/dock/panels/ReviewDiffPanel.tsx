@@ -52,7 +52,7 @@ export const ReviewDiffPanel: React.FC<IDockviewPanelProps> = (props) => {
   }
 
   return (
-    <div className="h-full relative">
+    <div key={file.path} className="h-full relative">
       <DiffViewer
         patch={file.patch}
         filePath={file.path}
