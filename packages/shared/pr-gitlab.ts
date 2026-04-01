@@ -30,59 +30,53 @@ function apiArgs(host: string, endpoint: string, extra: string[] = []): string[]
   return args;
 }
 
-/** Build glab mr subcommand args with optional --hostname */
-function mrArgs(host: string, subcmd: string, iid: number, projectPath: string, extra: string[] = []): string[] {
-  const args = ["mr", subcmd, String(iid), "-R", projectPath, ...extra];
-  if (host !== "gitlab.com") {
-    args.push("--hostname", host);
-  }
-  return args;
+/** Shape of each entry from the GitLab merge_request diffs API */
+interface GitLabDiffEntry {
+  diff: string;
+  old_path: string;
+  new_path: string;
+  new_file: boolean;
+  deleted_file: boolean;
+  renamed_file: boolean;
+}
+
+/** Parse potentially concatenated JSON arrays from glab api --paginate output */
+function parsePaginatedArray<T>(stdout: string): T[] {
+  // glab --paginate concatenates pages: [...][...] → merge into one array
+  const fixed = stdout.replace(/\]\s*\[/g, ",");
+  return JSON.parse(fixed) as T[];
 }
 
 /**
- * Normalize glab mr diff output to standard git diff format.
+ * Reconstruct a unified patch from GitLab's merge_request diffs API response.
  *
- * glab outputs bare diffs:
- *   --- README.md
- *   +++ README.md
- *
- * The UI parser expects git-style:
- *   diff --git a/README.md b/README.md
- *   --- a/README.md
- *   +++ b/README.md
+ * Each entry has: { diff, old_path, new_path, new_file, deleted_file, renamed_file }
+ * We construct proper `diff --git` headers that the UI parser expects.
  */
-function normalizeGlabDiff(raw: string): string {
-  const lines = raw.split("\n");
-  const out: string[] = [];
+function reconstructPatch(diffs: GitLabDiffEntry[]): string {
+  const parts: string[] = [];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const nextLine = lines[i + 1];
+  for (const d of diffs) {
+    const aPath = d.new_file ? "/dev/null" : `a/${d.old_path}`;
+    const bPath = d.deleted_file ? "/dev/null" : `b/${d.new_path}`;
+    const displayOld = d.new_file ? d.new_path : d.old_path;
+    const displayNew = d.deleted_file ? d.old_path : d.new_path;
 
-    // Detect a file boundary: `--- <path>` followed by `+++ <path>`
-    if (
-      line.startsWith("--- ") && !line.startsWith("--- a/") &&
-      nextLine?.startsWith("+++ ") && !nextLine.startsWith("+++ b/")
-    ) {
-      const oldPath = line.slice(4).trim();
-      const newPath = nextLine.slice(4).trim();
-
-      // Handle new files (--- /dev/null) and deleted files (+++ /dev/null)
-      const aPath = oldPath === "/dev/null" ? "/dev/null" : `a/${oldPath}`;
-      const bPath = newPath === "/dev/null" ? "/dev/null" : `b/${newPath}`;
-      const displayOld = oldPath === "/dev/null" ? newPath : oldPath;
-      const displayNew = newPath === "/dev/null" ? oldPath : newPath;
-
-      out.push(`diff --git a/${displayOld} b/${displayNew}`);
-      out.push(`--- ${aPath}`);
-      out.push(`+++ ${bPath}`);
-      i++; // Skip the +++ line, we already handled it
-    } else {
-      out.push(line);
+    let header = `diff --git a/${displayOld} b/${displayNew}`;
+    if (d.renamed_file) {
+      header += `\nrename from ${d.old_path}\nrename to ${d.new_path}`;
     }
+    if (d.new_file) {
+      header += "\nnew file mode 100644";
+    }
+    if (d.deleted_file) {
+      header += "\ndeleted file mode 100644";
+    }
+
+    parts.push(`${header}\n--- ${aPath}\n+++ ${bPath}\n${d.diff}`);
   }
 
-  return out.join("\n");
+  return parts.join("");
 }
 
 // --- Auth ---
@@ -123,9 +117,9 @@ export async function fetchGlMR(
 ): Promise<{ metadata: PRMetadata; rawPatch: string }> {
   const encoded = encodeProject(ref.projectPath);
 
-  // Fetch diff and metadata in parallel
+  // Fetch diff and metadata in parallel via glab api (supports --hostname for self-hosted)
   const [diffResult, viewResult] = await Promise.all([
-    runtime.runCommand("glab", mrArgs(ref.host, "diff", ref.iid, ref.projectPath)),
+    runtime.runCommand("glab", apiArgs(ref.host, `projects/${encoded}/merge_requests/${ref.iid}/diffs?per_page=100`, ["--paginate"])),
     runtime.runCommand("glab", apiArgs(ref.host, `projects/${encoded}/merge_requests/${ref.iid}`)),
   ]);
 
@@ -141,9 +135,9 @@ export async function fetchGlMR(
     );
   }
 
-  // glab mr diff outputs bare diffs (--- file / +++ file) without git-style headers.
-  // Normalize to standard `diff --git a/path b/path` format that the UI parser expects.
-  const rawPatch = normalizeGlabDiff(diffResult.stdout);
+  // Reconstruct unified patch from structured API response
+  const diffs = parsePaginatedArray<GitLabDiffEntry>(diffResult.stdout);
+  const rawPatch = reconstructPatch(diffs);
 
   const raw = JSON.parse(viewResult.stdout) as {
     title: string;

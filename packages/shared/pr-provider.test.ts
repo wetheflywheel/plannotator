@@ -17,9 +17,34 @@ describe("pr-provider platform helpers", () => {
 
     expect(ref).toEqual({
       platform: "github",
+      host: "github.com",
       owner: "backnotprop",
       repo: "plannotator",
       number: 364,
+    });
+  });
+
+  test("parses GitHub Enterprise PR URLs", () => {
+    const ref = parsePRUrl("https://ghe.company.com/org/repo/pull/99/files");
+
+    expect(ref).toEqual({
+      platform: "github",
+      host: "ghe.company.com",
+      owner: "org",
+      repo: "repo",
+      number: 99,
+    });
+  });
+
+  test("does not confuse GHE URL with GitLab", () => {
+    const ref = parsePRUrl("https://git.internal.corp/team/app/pull/5");
+
+    expect(ref).toEqual({
+      platform: "github",
+      host: "git.internal.corp",
+      owner: "team",
+      repo: "app",
+      number: 5,
     });
   });
 
@@ -53,6 +78,7 @@ describe("pr-provider platform helpers", () => {
   test("formats platform-aware labels for GitHub and GitLab", () => {
     const githubMeta: PRMetadata = {
       platform: "github",
+      host: "github.com",
       owner: "backnotprop",
       repo: "plannotator",
       number: 364,
@@ -93,6 +119,7 @@ describe("pr-provider platform helpers", () => {
   test("reconstructs refs and CLI metadata for each platform", () => {
     const githubMeta: PRMetadata = {
       platform: "github",
+      host: "github.com",
       owner: "backnotprop",
       repo: "plannotator",
       number: 1,
@@ -124,6 +151,7 @@ describe("pr-provider platform helpers", () => {
 
     expect(githubRef).toEqual({
       platform: "github",
+      host: "github.com",
       owner: "backnotprop",
       repo: "plannotator",
       number: 1,

@@ -10,26 +10,44 @@ import { encodeApiFilePath } from "./pr-provider";
 // GitHub-specific PRRef shape (used internally)
 interface GhPRRef {
   platform: "github";
+  host: string;
   owner: string;
   repo: string;
   number: number;
 }
 
+/** Build the --repo flag value: HOST/OWNER/REPO for GHE, OWNER/REPO for github.com */
+function repoFlag(ref: GhPRRef): string {
+  if (ref.host !== "github.com") {
+    return `${ref.host}/${ref.owner}/${ref.repo}`;
+  }
+  return `${ref.owner}/${ref.repo}`;
+}
+
+/** Append --hostname to args for gh api / gh auth on GHE */
+function hostnameArgs(host: string, args: string[]): string[] {
+  if (host !== "github.com") {
+    return [...args, "--hostname", host];
+  }
+  return args;
+}
+
 // --- Auth ---
 
-export async function checkGhAuth(runtime: PRRuntime): Promise<void> {
-  const result = await runtime.runCommand("gh", ["auth", "status"]);
+export async function checkGhAuth(runtime: PRRuntime, host: string): Promise<void> {
+  const result = await runtime.runCommand("gh", hostnameArgs(host, ["auth", "status"]));
   if (result.exitCode !== 0) {
     const stderr = result.stderr.trim();
+    const hostHint = host !== "github.com" ? ` --hostname ${host}` : "";
     throw new Error(
-      `GitHub CLI not authenticated. Run \`gh auth login\` first.\n${stderr}`,
+      `GitHub CLI not authenticated. Run \`gh auth login${hostHint}\` first.\n${stderr}`,
     );
   }
 }
 
-export async function getGhUser(runtime: PRRuntime): Promise<string | null> {
+export async function getGhUser(runtime: PRRuntime, host: string): Promise<string | null> {
   try {
-    const result = await runtime.runCommand("gh", ["api", "user", "--jq", ".login"]);
+    const result = await runtime.runCommand("gh", hostnameArgs(host, ["api", "user", "--jq", ".login"]));
     if (result.exitCode === 0 && result.stdout.trim()) {
       return result.stdout.trim();
     }
@@ -45,7 +63,7 @@ export async function fetchGhPR(
   runtime: PRRuntime,
   ref: GhPRRef,
 ): Promise<{ metadata: PRMetadata; rawPatch: string }> {
-  const repo = `${ref.owner}/${ref.repo}`;
+  const repo = repoFlag(ref);
 
   // Fetch diff and metadata in parallel
   const [diffResult, viewResult] = await Promise.all([
@@ -85,6 +103,7 @@ export async function fetchGhPR(
 
   const metadata: PRMetadata = {
     platform: "github",
+    host: ref.host,
     owner: ref.owner,
     repo: ref.repo,
     number: ref.number,
@@ -164,7 +183,7 @@ export async function fetchGhPRContext(
   runtime: PRRuntime,
   ref: GhPRRef,
 ): Promise<PRContext> {
-  const repo = `${ref.owner}/${ref.repo}`;
+  const repo = repoFlag(ref);
 
   const result = await runtime.runCommand("gh", [
     "pr", "view", String(ref.number),
@@ -190,11 +209,11 @@ export async function fetchGhPRFileContent(
   sha: string,
   filePath: string,
 ): Promise<string | null> {
-  const result = await runtime.runCommand("gh", [
+  const result = await runtime.runCommand("gh", hostnameArgs(ref.host, [
     "api",
     `repos/${ref.owner}/${ref.repo}/contents/${encodeApiFilePath(filePath)}?ref=${sha}`,
     "--jq", ".content",
-  ]);
+  ]));
 
   if (result.exitCode !== 0) return null;
 
@@ -246,13 +265,13 @@ export async function fetchGhPRViewedFiles(
 
   // Paginate through all files (GitHub returns max 100 per page)
   do {
-    const args = [
+    const args = hostnameArgs(ref.host, [
       "api", "graphql",
       "-f", `query=${query}`,
       "-F", `owner=${ref.owner}`,
       "-F", `repo=${ref.repo}`,
       "-F", `number=${ref.number}`,
-    ];
+    ]);
     if (cursor) {
       args.push("-F", `cursor=${cursor}`);
     }
@@ -304,7 +323,7 @@ export async function fetchGhPRViewedFiles(
  */
 export async function markGhFilesViewed(
   runtime: PRRuntime,
-  _ref: GhPRRef,
+  ref: GhPRRef,
   prNodeId: string,
   filePaths: string[],
   viewed: boolean,
@@ -323,12 +342,12 @@ export async function markGhFilesViewed(
   const results = await Promise.allSettled(
     filePaths.map((path) =>
       runtime.runCommandWithInput
-        ? runtime.runCommand("gh", [
+        ? runtime.runCommand("gh", hostnameArgs(ref.host, [
             "api", "graphql",
             "-f", `query=${mutation}`,
             "-F", `id=${prNodeId}`,
             "-F", `path=${path}`,
-          ])
+          ]))
         : Promise.reject(new Error("Runtime does not support commands")),
     ),
   );
@@ -365,7 +384,7 @@ export async function submitGhPRReview(
   if (runtime.runCommandWithInput) {
     result = await runtime.runCommandWithInput(
       "gh",
-      ["api", endpoint, "--method", "POST", "--input", "-"],
+      hostnameArgs(ref.host, ["api", endpoint, "--method", "POST", "--input", "-"]),
       payload,
     );
   } else {
