@@ -347,7 +347,6 @@ export const FileTree: React.FC<FileTreeProps> = ({
                 group={group}
                 searchQuery={searchQuery}
                 activeSearchMatchId={activeSearchMatchId ?? null}
-                onSelectFile={onSelectFile}
                 onSelectMatch={onSelectSearchMatch}
               />
             ))
@@ -418,9 +417,8 @@ const SearchFileGroup: React.FC<{
   group: ReviewSearchFileGroup;
   searchQuery: string;
   activeSearchMatchId: string | null;
-  onSelectFile: (index: number) => void;
   onSelectMatch?: (matchId: string) => void;
-}> = ({ group, searchQuery, activeSearchMatchId, onSelectFile, onSelectMatch }) => {
+}> = ({ group, searchQuery, activeSearchMatchId, onSelectMatch }) => {
   const [collapsed, setCollapsed] = useState(false);
   const fileName = group.filePath.split('/').pop() || group.filePath;
   const dirPath = group.filePath.includes('/') ? group.filePath.slice(0, group.filePath.lastIndexOf('/')) : '';
@@ -455,7 +453,6 @@ const SearchFileGroup: React.FC<{
               searchQuery={searchQuery}
               isActive={activeSearchMatchId === match.id}
               onSelect={() => {
-                onSelectFile(group.fileIndex);
                 onSelectMatch?.(match.id);
               }}
             />

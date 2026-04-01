@@ -26,7 +26,7 @@ import { useGitAdd } from './hooks/useGitAdd';
 import { generateId } from './utils/generateId';
 import { useAIChat } from './hooks/useAIChat';
 import { extractLinesFromPatch } from './utils/patchParser';
-import { isTypingTarget, useReviewSearch } from './hooks/useReviewSearch';
+import { isTypingTarget, useReviewSearch, type ReviewSearchMatch } from './hooks/useReviewSearch';
 import { useEditorAnnotations } from '@plannotator/ui/hooks/useEditorAnnotations';
 import { useExternalAnnotations } from '@plannotator/ui/hooks/useExternalAnnotations';
 import { useAgentJobs } from '@plannotator/ui/hooks/useAgentJobs';
@@ -201,30 +201,6 @@ const ReviewApp: React.FC = () => {
     setPendingSelection(null);
   }, []);
 
-  const {
-    searchQuery,
-    debouncedSearchQuery,
-    isSearchPending,
-    isSearchOpen,
-    activeSearchMatchId,
-    activeSearchMatch,
-    activeFileSearchMatches,
-    searchMatches,
-    searchGroups,
-    searchInputRef,
-    openSearch,
-    closeSearch,
-    clearSearch,
-    stepSearchMatch,
-    handleSearchInputChange,
-    handleSelectSearchMatch,
-  } = useReviewSearch({
-    files,
-    activeFileIndex,
-    setActiveFileIndex,
-    clearPendingSelection,
-  });
-
   // VS Code editor annotations (only polls when inside VS Code webview)
   const { editorAnnotations, deleteEditorAnnotation } = useEditorAnnotations();
 
@@ -252,8 +228,6 @@ const ReviewApp: React.FC = () => {
     const file = files.find(candidate => candidate.path === filePath);
     if (!file) return;
 
-    setPendingSelection(null);
-
     if (!dockApi) {
       const fileIndex = files.findIndex(candidate => candidate.path === filePath);
       if (fileIndex !== -1) {
@@ -264,10 +238,25 @@ const ReviewApp: React.FC = () => {
 
     const existing = dockApi.getPanel(REVIEW_DIFF_PANEL_ID);
     if (existing) {
+      const existingFilePath = getReviewDiffPanelFilePath(existing.params);
+      if (existingFilePath === filePath) {
+        if (dockApi.activePanel?.id !== REVIEW_DIFF_PANEL_ID) {
+          existing.api.setActive();
+        }
+        const fileIndex = files.findIndex(candidate => candidate.path === filePath);
+        if (fileIndex !== -1) {
+          setActiveFileIndex(fileIndex);
+        }
+        needsInitialDiffPanel.current = false;
+        return;
+      }
+
+      setPendingSelection(null);
       existing.api.updateParameters({ filePath });
       existing.api.setTitle(getFileTabTitle(file.path));
       existing.api.setActive();
     } else {
+      setPendingSelection(null);
       dockApi.addPanel({
         id: REVIEW_DIFF_PANEL_ID,
         component: REVIEW_PANEL_TYPES.DIFF,
@@ -279,6 +268,33 @@ const ReviewApp: React.FC = () => {
     setActiveFileIndex(files.findIndex(candidate => candidate.path === filePath));
     needsInitialDiffPanel.current = false;
   }, [dockApi, files]);
+
+  const handleRevealSearchMatch = useCallback((match: ReviewSearchMatch) => {
+    openDiffFile(match.filePath);
+  }, [openDiffFile]);
+
+  const {
+    searchQuery,
+    debouncedSearchQuery,
+    isSearchPending,
+    isSearchOpen,
+    activeSearchMatchId,
+    activeSearchMatch,
+    activeFileSearchMatches,
+    searchMatches,
+    searchGroups,
+    searchInputRef,
+    openSearch,
+    closeSearch,
+    clearSearch,
+    stepSearchMatch,
+    handleSearchInputChange,
+    handleSelectSearchMatch,
+  } = useReviewSearch({
+    files,
+    activeFilePath: files[activeFileIndex]?.path ?? null,
+    onRevealMatch: handleRevealSearchMatch,
+  });
 
   // Merge local + SSE annotations, deduping draft-restored externals against
   // live SSE versions. Prefer the SSE version when both exist (same source,

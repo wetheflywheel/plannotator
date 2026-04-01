@@ -174,13 +174,46 @@ export function swapActiveSearchHighlight(
   }
 }
 
-export function scrollToSearchMatch(root: ParentNode, match: ReviewSearchMatch): boolean {
+function scrollSearchTargetIntoContainer(
+  scrollContainer: HTMLElement,
+  target: HTMLElement,
+): void {
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+
+  if (targetRect.height === 0 && targetRect.width === 0) return;
+
+  const margin = Math.min(Math.max(scrollContainer.clientHeight * 0.15, 24), 96);
+  const targetTop = targetRect.top - containerRect.top;
+  const targetBottom = targetRect.bottom - containerRect.top;
+  const isVisible =
+    targetTop >= margin &&
+    targetBottom <= scrollContainer.clientHeight - margin;
+
+  if (isVisible) return;
+
+  const centeredTop =
+    scrollContainer.scrollTop +
+    targetTop -
+    Math.max((scrollContainer.clientHeight - targetRect.height) / 2, 0);
+
+  scrollContainer.scrollTo({
+    top: Math.max(0, centeredTop),
+    behavior: 'smooth',
+  });
+}
+
+export function scrollToSearchMatch(
+  scrollContainer: HTMLElement,
+  root: ParentNode,
+  match: ReviewSearchMatch,
+): boolean {
   const lineEl = root.querySelector(getLineSelector(match)) as HTMLElement | null;
   if (!lineEl) return false;
 
-  lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   const mark = root.querySelector(`mark[data-review-search-match="${match.id}"]`) as HTMLElement | null;
-  mark?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  scrollSearchTargetIntoContainer(scrollContainer, mark ?? lineEl);
+  mark?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   return true;
 }
 
@@ -194,7 +227,7 @@ export function retryScrollToSearchMatch(
   const tryScroll = () => {
     if (cancelled) return;
 
-    const didScroll = getSearchRoots(container).some(root => scrollToSearchMatch(root, match));
+    const didScroll = getSearchRoots(container).some(root => scrollToSearchMatch(container, root, match));
     if (didScroll) return;
 
     attempts += 1;

@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useEffect, useCallback, useState } from 'react';
-import { FileDiff } from '@pierre/diffs/react';
+import { FileDiff, type DiffLineAnnotation } from '@pierre/diffs/react';
 import { getSingularPatch, processFile } from '@pierre/diffs';
 import { CodeAnnotation, CodeAnnotationType, SelectedLineRange, DiffAnnotationMetadata } from '@plannotator/ui/types';
 import { useTheme } from '@plannotator/ui/components/ThemeProvider';
@@ -21,6 +21,86 @@ import {
   retryScrollToSearchMatch,
   swapActiveSearchHighlight,
 } from '../utils/reviewSearchHighlight';
+
+interface PierreDiffContentProps {
+  filePath: string;
+  fileDiff: ReturnType<typeof getSingularPatch>;
+  pierreTheme: { type: 'dark' | 'light'; css: string };
+  diffStyle: 'split' | 'unified';
+  diffOverflow?: 'scroll' | 'wrap';
+  diffIndicators?: 'bars' | 'classic' | 'none';
+  lineDiffType?: 'word-alt' | 'word' | 'char' | 'none';
+  disableLineNumbers?: boolean;
+  disableBackground?: boolean;
+  mergedAnnotations: DiffLineAnnotation<DiffAnnotationMetadata>[];
+  pendingSelection: SelectedLineRange | null;
+  onLineSelectionEnd: (range: SelectedLineRange | null) => void;
+  renderAnnotation: (annotation: { side: string; lineNumber: number; metadata?: DiffAnnotationMetadata }) => React.ReactNode;
+  renderHoverUtility: (getHoveredLine: () => { lineNumber: number; side: 'deletions' | 'additions' } | undefined) => React.ReactNode;
+  splitGridStyle?: React.CSSProperties;
+}
+
+const PierreDiffContent = React.memo(({
+  filePath,
+  fileDiff,
+  pierreTheme,
+  diffStyle,
+  diffOverflow,
+  diffIndicators,
+  lineDiffType,
+  disableLineNumbers,
+  disableBackground,
+  mergedAnnotations,
+  pendingSelection,
+  onLineSelectionEnd,
+  renderAnnotation,
+  renderHoverUtility,
+  splitGridStyle,
+}: PierreDiffContentProps) => {
+  return (
+    <div className="p-4" style={splitGridStyle}>
+      <FileDiff
+        key={filePath}
+        fileDiff={fileDiff}
+        options={{
+          themeType: pierreTheme.type,
+          unsafeCSS: pierreTheme.css,
+          diffStyle,
+          overflow: diffOverflow,
+          diffIndicators,
+          lineDiffType,
+          disableLineNumbers,
+          disableBackground,
+          hunkSeparators: 'line-info',
+          enableLineSelection: true,
+          enableHoverUtility: true,
+          onLineSelectionEnd,
+        }}
+        lineAnnotations={mergedAnnotations}
+        selectedLines={pendingSelection || undefined}
+        renderAnnotation={renderAnnotation}
+        renderHoverUtility={renderHoverUtility}
+      />
+    </div>
+  );
+}, (prev, next) => (
+  prev.filePath === next.filePath &&
+  prev.fileDiff === next.fileDiff &&
+  prev.pierreTheme.type === next.pierreTheme.type &&
+  prev.pierreTheme.css === next.pierreTheme.css &&
+  prev.diffStyle === next.diffStyle &&
+  prev.diffOverflow === next.diffOverflow &&
+  prev.diffIndicators === next.diffIndicators &&
+  prev.lineDiffType === next.lineDiffType &&
+  prev.disableLineNumbers === next.disableLineNumbers &&
+  prev.disableBackground === next.disableBackground &&
+  prev.mergedAnnotations === next.mergedAnnotations &&
+  prev.pendingSelection === next.pendingSelection &&
+  prev.onLineSelectionEnd === next.onLineSelectionEnd &&
+  prev.renderAnnotation === next.renderAnnotation &&
+  prev.renderHoverUtility === next.renderHoverUtility &&
+  prev.splitGridStyle === next.splitGridStyle
+));
 
 interface DiffViewerProps {
   patch: string;
@@ -397,6 +477,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     });
   }, [resolvedMode, colorTheme, fontFamily, fontSize]);
 
+  const splitGridStyle = useMemo(() => {
+    if (!isSplitLayout || diffOverflow === 'wrap') return undefined;
+    return {
+      '--split-left': `${splitRatio}fr`,
+      '--split-right': `${1 - splitRatio}fr`,
+    } as React.CSSProperties;
+  }, [diffOverflow, isSplitLayout, splitRatio]);
+
   return (
     <div className="h-full flex flex-col">
       <FileHeader
@@ -423,36 +511,23 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           <div className="absolute inset-y-0 left-1/2 w-px bg-border group-hover:bg-primary/50 group-active:bg-primary/70 transition-colors" />
         </div>
       )}
-      <div
-        className="p-4"
-        style={isSplitLayout && diffOverflow !== 'wrap' ? {
-          '--split-left': `${splitRatio}fr`,
-          '--split-right': `${1 - splitRatio}fr`,
-        } as React.CSSProperties : undefined}
-      >
-        <FileDiff
-          key={filePath}
-          fileDiff={augmentedDiff}
-          options={{
-            themeType: pierreTheme.type,
-            unsafeCSS: pierreTheme.css,
-            diffStyle,
-            overflow: diffOverflow,
-            diffIndicators,
-            lineDiffType,
-            disableLineNumbers,
-            disableBackground,
-            hunkSeparators: 'line-info',
-            enableLineSelection: true,
-            enableHoverUtility: true,
-            onLineSelectionEnd: toolbar.handleLineSelectionEnd,
-          }}
-          lineAnnotations={mergedAnnotations}
-          selectedLines={pendingSelection || undefined}
-          renderAnnotation={renderAnnotation}
-          renderHoverUtility={renderHoverUtility}
-        />
-      </div>
+      <PierreDiffContent
+        filePath={filePath}
+        fileDiff={augmentedDiff}
+        pierreTheme={pierreTheme}
+        diffStyle={diffStyle}
+        diffOverflow={diffOverflow}
+        diffIndicators={diffIndicators}
+        lineDiffType={lineDiffType}
+        disableLineNumbers={disableLineNumbers}
+        disableBackground={disableBackground}
+        mergedAnnotations={mergedAnnotations}
+        pendingSelection={pendingSelection}
+        onLineSelectionEnd={toolbar.handleLineSelectionEnd}
+        renderAnnotation={renderAnnotation}
+        renderHoverUtility={renderHoverUtility}
+        splitGridStyle={splitGridStyle}
+      />
 
       {toolbar.toolbarState && (
         <AnnotationToolbar
