@@ -473,10 +473,10 @@ every future planning session automatically.
 The hook file lives at:
 
 ```
-~/.plannotator/compound/enterplanmode-improve-hook.txt
+~/.plannotator/hooks/compound/enterplanmode-improve-hook.txt
 ```
 
-Create the `~/.plannotator/compound/` directory if it doesn't exist.
+Create the `~/.plannotator/hooks/compound/` directory if it doesn't exist.
 
 The file contents should be the corrective prompt instructions from Phase 3 —
 the same numbered list that appears in section 7 of the HTML report. Write them
