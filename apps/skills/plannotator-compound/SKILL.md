@@ -233,10 +233,10 @@ datasets), proceed with the reduction. Reduction agents should use `model: "sonn
 
 The approach depends on how many extraction files were produced:
 
-**Small (≤ 6 extraction files):** Launch a single Sonnet agent to read all
-extraction files and produce the full analysis.
+**Standard (≤ 20 extraction files):** Launch a single Sonnet agent to read all
+extraction files and produce the full analysis. This covers most datasets.
 
-**Large (7+ extraction files):** Use a two-stage reduce:
+**Large (21+ extraction files):** Use a two-stage reduce:
 
 1. **Stage 1 — Partial reduces:** Split the extraction files into groups of 4-6.
    Launch parallel Sonnet agents, each reading one group and producing a partial
