@@ -750,23 +750,29 @@ if (args[0] === "sessions") {
   let planContent = "";
   let permissionMode = "default";
   let isGemini = false;
+  let planFilename = "";
   let event: Record<string, any>;
   try {
     event = JSON.parse(eventJson);
 
-    // Detect harness: Gemini sends plan_path (file on disk), Claude Code sends plan (inline)
-    isGemini = !!event.tool_input?.plan_path;
+    // Detect harness: Gemini sends plan_filename (file on disk), Claude Code sends plan (inline)
+    planFilename = event.tool_input?.plan_filename || event.tool_input?.plan_path || "";
+    isGemini = !!planFilename;
 
     if (isGemini) {
-      const planFilePath = path.resolve(event.cwd, event.tool_input.plan_path);
+      // Reconstruct full plan path from transcript_path and session_id:
+      // transcript_path = <projectTempDir>/chats/session-...json
+      // plan lives at   = <projectTempDir>/<session_id>/plans/<plan_filename>
+      const projectTempDir = path.dirname(path.dirname(event.transcript_path));
+      const planFilePath = path.join(projectTempDir, event.session_id, "plans", planFilename);
       planContent = await Bun.file(planFilePath).text();
     } else {
       planContent = event.tool_input?.plan || "";
     }
 
     permissionMode = event.permission_mode || "default";
-  } catch {
-    console.error("Failed to parse hook event from stdin");
+  } catch (e: any) {
+    console.error(`Failed to parse hook event from stdin: ${e?.message || e}`);
     process.exit(1);
   }
 
@@ -823,7 +829,7 @@ if (args[0] === "sessions") {
         JSON.stringify({
           decision: "deny",
           reason: planDenyFeedback(result.feedback || "", "exit_plan_mode", {
-            planFilePath: event.tool_input.plan_path,
+            planFilePath: planFilename,
           }),
         })
       );
