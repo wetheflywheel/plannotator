@@ -3,9 +3,9 @@ import type { ResizeHandleProps as BaseProps } from '../hooks/useResizablePanel'
 
 interface Props extends BaseProps {
   className?: string;
-  /** Controls which direction the touch area extends to avoid covering adjacent scrollbars.
-   *  'left' = handle is on the right edge of the left sidebar, touch area extends leftward.
-   *  'right' = handle is on the left edge of the right panel, touch area extends rightward. */
+  /** Touch area extends rightward to avoid covering scrollbars on the right
+   *  edge of the left-adjacent panel. 'right' uses zero left encroachment
+   *  since the scrollbar is immediately adjacent; 'left' allows slight overlap. */
   side?: 'left' | 'right';
 }
 
@@ -28,7 +28,7 @@ export const ResizeHandle: React.FC<Props> = ({
     <div
       className={`absolute inset-y-0 ${
         side === 'left' ? '-right-2 -left-1' :
-        side === 'right' ? '-left-2 -right-1' :
+        side === 'right' ? '-right-3 left-0' :
         '-inset-x-2'
       }`}
       onMouseDown={onMouseDown}
