@@ -114,6 +114,7 @@ const ReviewApp: React.FC = () => {
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [pendingSelection, setPendingSelection] = useState<SelectedLineRange | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showWorktreeDialog, setShowWorktreeDialog] = useState(false);
   const [openSettingsMenu, setOpenSettingsMenu] = useState(false);
   const [showNoAnnotationsDialog, setShowNoAnnotationsDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -965,6 +966,7 @@ const ReviewApp: React.FC = () => {
     onClickAIMarker: handleClickAIMarker,
     aiHistoryForSelection,
     agentJobs: agentJobs.jobs,
+    jobLogs: agentJobs.jobLogs,
     prMetadata,
     prContext,
     isPRContextLoading,
@@ -983,7 +985,7 @@ const ReviewApp: React.FC = () => {
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch,
     aiAvailable, aiChat.messages, aiChat.isCreatingSession, aiChat.isStreaming,
     handleAskAI, handleViewAIResponse, handleClickAIMarker,
-    aiHistoryForSelection, agentJobs.jobs, prMetadata, prContext,
+    aiHistoryForSelection, agentJobs.jobs, agentJobs.jobLogs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, openDiffFile,
   ]);
 
@@ -1306,6 +1308,14 @@ const ReviewApp: React.FC = () => {
           <div className="min-w-0 flex items-center gap-2 md:gap-3">
             {prMetadata ? (
               <div className="min-w-0 flex items-center gap-2 md:gap-3">
+                {prMetadata && gitContext && (
+                  <button
+                    onClick={() => setShowWorktreeDialog(true)}
+                    className="text-[10px] font-medium text-primary/80 bg-primary/10 hover:bg-primary/20 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                  >
+                    worktree
+                  </button>
+                )}
                 <span
                   className="text-xs text-muted-foreground/60 inline-flex items-center gap-1 truncate max-w-[200px]"
                   title={displayRepo}
@@ -1765,6 +1775,33 @@ const ReviewApp: React.FC = () => {
             onExternalClose={() => setOpenSettingsMenu(false)}
           />
         </div>
+
+        {/* Worktree info dialog */}
+        {gitContext?.cwd && prMetadata && (
+          <ConfirmDialog
+            isOpen={showWorktreeDialog}
+            onClose={() => setShowWorktreeDialog(false)}
+            title="Local Worktree"
+            wide
+            message={
+              <div className="space-y-3">
+                <p>This PR is checked out in a temporary local worktree for full file access.</p>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">Path</span>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(gitContext!.cwd!)}
+                    className="mt-1 w-full text-left font-mono text-xs bg-muted/50 border border-border/50 rounded-md px-3 py-2 text-foreground hover:bg-muted transition-colors cursor-pointer break-all"
+                    title="Click to copy"
+                  >
+                    {gitContext.cwd}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground/60">Automatically removed when this review session ends.</p>
+              </div>
+            }
+            variant="info"
+          />
+        )}
 
         {/* No annotations dialog */}
         <ConfirmDialog

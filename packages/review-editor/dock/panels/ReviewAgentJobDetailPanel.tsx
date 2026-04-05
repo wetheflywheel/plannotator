@@ -1,13 +1,18 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import type { AgentJobInfo, CodeAnnotation } from '@plannotator/ui/types';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
 import { useReviewState } from '../ReviewStateContext';
+import { CopyButton } from '../../components/CopyButton';
+import { LiveLogViewer } from '../../components/LiveLogViewer';
+import { exportReviewFeedback } from '../../utils/exportFeedback';
 
-/**
- * Center dock panel showing full detail for a single agent job.
- * Displays all AgentJobInfo fields + linked annotations.
- */
+// ---------------------------------------------------------------------------
+// Panel
+// ---------------------------------------------------------------------------
+
+type DetailTab = 'findings' | 'logs';
+
 export const ReviewAgentJobDetailPanel: React.FC<IDockviewPanelProps> = (props) => {
   const jobId: string = props.params?.jobId ?? '';
   const state = useReviewState();
@@ -17,157 +22,325 @@ export const ReviewAgentJobDetailPanel: React.FC<IDockviewPanelProps> = (props) 
     [state.agentJobs, jobId]
   );
 
-  const linkedAnnotations = useMemo(
-    () =>
-      job
-        ? (state.externalAnnotations.filter(
-            (a) => a.source === job.source
-          ) as CodeAnnotation[])
-        : [],
-    [state.externalAnnotations, job]
+  const terminal = job ? isTerminalStatus(job.status) : false;
+  const [activeTab, setActiveTab] = useState<DetailTab>('findings');
+
+  // --- Prompt extraction ---
+  const { fullCommand, userMessage, systemPrompt } = useMemo(() => {
+    const cmd = job?.command ?? [];
+    const full = cmd.join(' ');
+    const prompt = cmd.length > 0 ? cmd[cmd.length - 1] : '';
+    const sep = '\n\n---\n\n';
+    const i = prompt.indexOf(sep);
+    return {
+      fullCommand: full,
+      userMessage: i !== -1 ? prompt.substring(i + sep.length) : prompt,
+      systemPrompt: i !== -1 ? prompt.substring(0, i) : '',
+    };
+  }, [job]);
+
+  // --- Annotation snapshot ---
+  const [annotationSnapshot, setAnnotationSnapshot] = useState<
+    Map<string, { annotation: CodeAnnotation; dismissed: boolean }>
+  >(new Map());
+
+  useEffect(() => {
+    if (!job) return;
+    const currentIds = new Set(
+      state.externalAnnotations.filter((a) => a.source === job.source).map((a) => a.id)
+    );
+    setAnnotationSnapshot((prev) => {
+      const next = new Map(prev);
+      for (const ann of state.externalAnnotations) {
+        if (ann.source !== job.source) continue;
+        next.set(ann.id, { annotation: ann as CodeAnnotation, dismissed: false });
+      }
+      for (const [id, entry] of next) {
+        if (!entry.dismissed && !currentIds.has(id)) next.set(id, { ...entry, dismissed: true });
+      }
+      return next;
+    });
+  }, [state.externalAnnotations, job]);
+
+  const displayAnnotations = useMemo(() =>
+    Array.from(annotationSnapshot.values()).sort((a, b) => {
+      if (a.dismissed !== b.dismissed) return a.dismissed ? 1 : -1;
+      return a.annotation.filePath.localeCompare(b.annotation.filePath) || a.annotation.lineStart - b.annotation.lineStart;
+    }),
+  [annotationSnapshot]);
+
+  const activeAnnotations = useMemo(() => displayAnnotations.filter((d) => !d.dismissed).map((d) => d.annotation), [displayAnnotations]);
+  const dismissedCount = useMemo(() => displayAnnotations.filter((d) => d.dismissed).length, [displayAnnotations]);
+
+  const handleAnnotationClick = useCallback((ann: CodeAnnotation) => {
+    state.onSelectAnnotation(ann.id);
+  }, [state.onSelectAnnotation]);
+
+  const copyAllText = useMemo(
+    () => activeAnnotations.length > 0 ? exportReviewFeedback(activeAnnotations, state.prMetadata) : '',
+    [activeAnnotations, state.prMetadata]
   );
 
+  const logContent = state.jobLogs.get(jobId) ?? '';
+
   if (!job) {
-    return (
-      <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-        Job not found
-      </div>
-    );
+    return <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Job not found</div>;
   }
 
-  const handleAnnotationClick = (ann: CodeAnnotation) => {
-    state.openDiffFile(ann.filePath);
-    state.onSelectAnnotation(ann.id);
-  };
+  const isCorrect = job.summary
+    ? job.summary.correctness.toLowerCase().includes('correct') && !job.summary.correctness.toLowerCase().includes('incorrect')
+    : null;
 
   return (
-    <div className="h-full overflow-y-auto">
-      {/* Header */}
-      <div className="sticky top-0 bg-card/95 backdrop-blur-sm border-b border-border/50 p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <JobStatusBadge status={job.status} />
-          <JobProviderBadge provider={job.provider} />
-          {!isTerminalStatus(job.status) && (
-            <span className="text-xs text-muted-foreground ml-auto">
-              <JobElapsedTime startedAt={job.startedAt} />
-            </span>
-          )}
+    <div className="h-full flex flex-col overflow-hidden bg-background">
+      {/* ── Header ── */}
+      <div className="flex-shrink-0 px-4 py-3 border-b border-border/40">
+        <div className="flex items-center gap-2">
+          <StatusDot status={job.status} />
+          <ProviderPill provider={job.provider} />
+          <span className="text-[13px] font-medium text-foreground truncate">{job.label}</span>
+          <span className="ml-auto text-[10px] font-mono text-muted-foreground">
+            {terminal && job.endedAt ? formatDuration(job.endedAt - job.startedAt) : <ElapsedTime startedAt={job.startedAt} />}
+          </span>
         </div>
-        <h2 className="text-sm font-semibold text-foreground">{job.label}</h2>
+        {job.cwd && (
+          <p className="text-[10px] font-mono text-muted-foreground/50 mt-1 truncate" title={job.cwd}>{job.cwd}</p>
+        )}
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Metadata */}
-        <section>
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Details</h3>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
-            <dt className="text-muted-foreground">Source</dt>
-            <dd className="font-mono text-foreground">{job.source}</dd>
+      {/* ── Verdict ── */}
+      <div className="flex-shrink-0 px-4 py-3">
+        <VerdictCard summary={job.summary} isCorrect={isCorrect} terminal={terminal} />
+      </div>
 
-            <dt className="text-muted-foreground">Command</dt>
-            <dd className="font-mono text-foreground truncate" title={job.command.join(' ')}>{job.command.join(' ')}</dd>
+      {/* ── Tabs ── */}
+      <div className="flex-shrink-0 px-4 flex gap-0.5 border-b border-border/40">
+        <TabButton active={activeTab === 'findings'} onClick={() => setActiveTab('findings')}>
+          Findings{activeAnnotations.length > 0 && ` (${activeAnnotations.length})`}
+        </TabButton>
+        <TabButton active={activeTab === 'logs'} onClick={() => setActiveTab('logs')}>
+          Logs
+          {!terminal && <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block" />}
+        </TabButton>
+      </div>
 
-            <dt className="text-muted-foreground">Started</dt>
-            <dd className="text-foreground">{new Date(job.startedAt).toLocaleTimeString()}</dd>
+      {/* ── Content ── */}
+      {activeTab === 'findings' ? (
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          {/* Annotations */}
+          {displayAnnotations.length > 0 && (
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted-foreground">
+                {activeAnnotations.length} finding{activeAnnotations.length !== 1 ? 's' : ''}
+                {dismissedCount > 0 && ` · ${dismissedCount} dismissed`}
+              </span>
+              {copyAllText && <CopyButton text={copyAllText} variant="inline" label="Copy All" />}
+            </div>
+          )}
 
-            {job.endedAt && (
-              <>
-                <dt className="text-muted-foreground">Ended</dt>
-                <dd className="text-foreground">{new Date(job.endedAt).toLocaleTimeString()}</dd>
-              </>
-            )}
-
-            {job.endedAt && (
-              <>
-                <dt className="text-muted-foreground">Duration</dt>
-                <dd className="text-foreground">{formatDuration(job.endedAt - job.startedAt)}</dd>
-              </>
-            )}
-
-            {job.exitCode !== undefined && (
-              <>
-                <dt className="text-muted-foreground">Exit code</dt>
-                <dd className={`font-mono ${job.exitCode === 0 ? 'text-success' : 'text-destructive'}`}>
-                  {job.exitCode}
-                </dd>
-              </>
-            )}
-          </dl>
-        </section>
-
-        {/* Stderr */}
-        {job.error && (
-          <section>
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              Stderr
-            </h3>
-            <pre className="text-[11px] leading-relaxed font-mono bg-muted/50 border border-border/50 rounded-md p-3 overflow-x-auto whitespace-pre-wrap break-words max-h-48">
-              {job.error}
-            </pre>
-          </section>
-        )}
-
-        {/* Linked Annotations */}
-        <section>
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-            Annotations ({linkedAnnotations.length})
-          </h3>
-          {linkedAnnotations.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {isTerminalStatus(job.status)
-                ? 'No annotations were produced by this job.'
-                : 'Annotations will appear here as the agent produces them.'}
-            </p>
+          {displayAnnotations.length === 0 ? (
+            <EmptyState terminal={terminal} />
           ) : (
-            <div className="space-y-1.5">
-              {linkedAnnotations.map((ann) => (
-                <button
-                  key={ann.id}
-                  className="w-full text-left p-2 rounded-md border border-transparent hover:border-border/50 hover:bg-muted/30 transition-colors"
-                  onClick={() => handleAnnotationClick(ann)}
-                >
-                  <div className="flex items-center gap-2 text-[10px]">
-                    <span className="font-mono text-primary truncate">{ann.filePath}</span>
-                    <span className="text-muted-foreground">L{ann.lineStart}{ann.lineEnd !== ann.lineStart ? `-${ann.lineEnd}` : ''}</span>
-                    <span className={`px-1.5 py-0.5 rounded font-medium uppercase tracking-wider ${
-                      ann.type === 'concern' ? 'bg-destructive/15 text-destructive' :
-                      ann.type === 'suggestion' ? 'bg-success/15 text-success' :
-                      'bg-muted text-muted-foreground'
-                    }`}>
-                      {ann.type}
-                    </span>
-                  </div>
-                  {ann.text && (
-                    <p className="text-xs text-foreground mt-1 line-clamp-2">{ann.text}</p>
-                  )}
-                </button>
+            <div className="space-y-0.5">
+              {displayAnnotations.map(({ annotation: ann, dismissed }) => (
+                <AnnotationRow key={ann.id} annotation={ann} dismissed={dismissed} onClick={handleAnnotationClick} />
               ))}
             </div>
           )}
-        </section>
 
-        {/* Output placeholder */}
-        {!isTerminalStatus(job.status) && linkedAnnotations.length === 0 && (
-          <section className="text-xs text-muted-foreground/60 text-center py-4 border border-dashed border-border/30 rounded-md">
-            Agent output will appear as annotations in the diff.
-          </section>
-        )}
-      </div>
+          {/* Debug context — collapsed by default */}
+          <Disclosure title="Details">
+            <div className="space-y-2 text-[11px] text-muted-foreground">
+              <div className="flex items-center justify-between">
+                <span>Started {new Date(job.startedAt).toLocaleTimeString()}</span>
+                {job.exitCode !== undefined && (
+                  <span>Exit <span className={`font-mono ${job.exitCode === 0 ? 'text-success' : 'text-destructive'}`}>{job.exitCode}</span></span>
+                )}
+              </div>
+              {userMessage && (
+                <Disclosure title="Prompt" copyText={userMessage} nested>
+                  <pre className="text-[11px] font-mono text-foreground/80 whitespace-pre-wrap break-words">{userMessage}</pre>
+                </Disclosure>
+              )}
+              {systemPrompt && (
+                <Disclosure title="System Prompt" copyText={systemPrompt} nested>
+                  <pre className="text-[11px] font-mono text-foreground/80 whitespace-pre-wrap break-words">{systemPrompt}</pre>
+                </Disclosure>
+              )}
+              {fullCommand && (
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-mono text-muted-foreground/60">{fullCommand.slice(0, 60)}...</span>
+                  <CopyButton text={fullCommand} variant="inline" />
+                </div>
+              )}
+            </div>
+          </Disclosure>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col min-h-0 px-4 py-3">
+          <LiveLogViewer content={logContent} isLive={!terminal} />
+          {!logContent && job.error && terminal && (
+            <div className="mt-2 flex-shrink-0">
+              <pre className="text-[11px] font-mono text-destructive bg-destructive/5 rounded-md p-3 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                {job.error}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
 
-// --- Small helper components (mirrors from AgentsTab, kept local) ---
+// ---------------------------------------------------------------------------
+// Subcomponents
+// ---------------------------------------------------------------------------
 
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
+function VerdictCard({ summary, isCorrect, terminal }: {
+  summary: AgentJobInfo['summary'];
+  isCorrect: boolean | null;
+  terminal: boolean;
+}) {
+  if (summary) {
+    return (
+      <div className={`rounded-lg border px-3 py-2.5 ${
+        isCorrect ? 'border-success/20 bg-success/5' : 'border-destructive/20 bg-destructive/5'
+      }`}>
+        <div className="flex items-baseline gap-2">
+          <span className={`text-xs font-semibold ${isCorrect ? 'text-success' : 'text-destructive'}`}>
+            {isCorrect ? 'Correct' : 'Incorrect'}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            Confidence {Math.round(summary.confidence * 100)}%
+          </span>
+        </div>
+        <p className="text-[11px] text-foreground/80 leading-relaxed mt-1">{summary.explanation}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border/30 bg-muted/10 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+          Review Verdict
+        </span>
+        {!terminal && (
+          <span className="text-[10px] text-muted-foreground/40 animate-pulse">Pending...</span>
+        )}
+      </div>
+      {terminal ? (
+        <p className="text-[11px] text-muted-foreground/50 mt-1">No verdict available.</p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/50 mt-1">Will appear when the review completes.</p>
+      )}
+    </div>
+  );
 }
 
-function JobElapsedTime({ startedAt }: { startedAt: number }) {
+function StatusDot({ status }: { status: AgentJobInfo['status'] }) {
+  if (status === 'starting' || status === 'running') {
+    return (
+      <span className="relative flex h-2 w-2 flex-shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-40" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+      </span>
+    );
+  }
+  const c: Record<string, string> = { done: 'bg-success', failed: 'bg-destructive', killed: 'bg-muted-foreground' };
+  return <span className={`inline-flex rounded-full h-2 w-2 flex-shrink-0 ${c[status] ?? c.killed}`} />;
+}
+
+function ProviderPill({ provider }: { provider: string }) {
+  const label = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : 'Shell';
+  return <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{label}</span>;
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors -mb-px ${
+        active
+          ? 'border-primary text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Disclosure({ title, copyText, nested, children }: {
+  title: string;
+  copyText?: string;
+  nested?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={nested ? '' : 'border-t border-border/30 pt-3'}>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <svg className={`w-2.5 h-2.5 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="font-medium uppercase tracking-wider">{title}</span>
+        </button>
+        {open && copyText && <CopyButton text={copyText} variant="inline" />}
+      </div>
+      {open && <div className="mt-2 ml-4">{children}</div>}
+    </div>
+  );
+}
+
+function AnnotationRow({ annotation: ann, dismissed, onClick }: {
+  annotation: CodeAnnotation;
+  dismissed: boolean;
+  onClick: (ann: CodeAnnotation) => void;
+}) {
+  return (
+    <button
+      className={`w-full text-left px-2.5 py-2 rounded-md transition-colors ${
+        dismissed ? 'opacity-30 cursor-default' : 'hover:bg-muted/30 cursor-pointer'
+      }`}
+      onClick={() => !dismissed && onClick(ann)}
+      disabled={dismissed}
+    >
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className={`font-mono truncate ${dismissed ? 'line-through text-muted-foreground' : 'text-primary'}`}>
+          {ann.filePath}
+        </span>
+        <span className="text-muted-foreground flex-shrink-0">
+          L{ann.lineStart}{ann.lineEnd !== ann.lineStart ? `–${ann.lineEnd}` : ''}
+        </span>
+        {dismissed && (
+          <span className="px-1 py-0.5 rounded text-[8px] uppercase tracking-wider bg-muted text-muted-foreground/60">dismissed</span>
+        )}
+      </div>
+      {ann.text && (
+        <p className={`text-[11px] mt-1 line-clamp-2 leading-relaxed ${dismissed ? 'text-muted-foreground/40' : 'text-foreground/80'}`}>
+          {ann.text}
+        </p>
+      )}
+    </button>
+  );
+}
+
+function EmptyState({ terminal }: { terminal: boolean }) {
+  return (
+    <div className="text-center py-8">
+      <p className="text-[11px] text-muted-foreground">
+        {terminal ? 'No findings were produced.' : 'Findings will appear as the agent works.'}
+      </p>
+    </div>
+  );
+}
+
+function ElapsedTime({ startedAt }: { startedAt: number }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
@@ -176,33 +349,8 @@ function JobElapsedTime({ startedAt }: { startedAt: number }) {
   return <>{formatDuration(Date.now() - startedAt)}</>;
 }
 
-function JobStatusBadge({ status }: { status: AgentJobInfo['status'] }) {
-  const config: Record<string, { className: string; label: string }> = {
-    starting: { className: 'text-primary', label: 'Starting' },
-    running: { className: 'text-primary', label: 'Running' },
-    done: { className: 'text-success', label: 'Done' },
-    failed: { className: 'text-destructive', label: 'Failed' },
-    killed: { className: 'text-muted-foreground', label: 'Killed' },
-  };
-  const c = config[status] ?? config.killed;
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${c.className}`}>
-      {(status === 'starting' || status === 'running') && (
-        <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-      )}
-      {c.label}
-    </span>
-  );
-}
-
-function JobProviderBadge({ provider }: { provider: string }) {
-  const label = provider === 'claude' ? 'Claude' : provider === 'codex' ? 'Codex' : 'Shell';
-  return (
-    <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-      {label}
-    </span>
-  );
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
 }

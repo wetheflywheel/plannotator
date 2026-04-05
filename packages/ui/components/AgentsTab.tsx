@@ -112,12 +112,12 @@ function JobCard({
 
   return (
     <div
-      className={`group relative p-2.5 rounded-lg border transition-all ${
+      className={`group relative p-2.5 rounded-lg border transition-all cursor-pointer ${
         expanded
           ? 'bg-muted/30 border-border/50'
           : 'border-transparent hover:bg-muted/30 hover:border-border/50'
-      } ${isTerminal ? 'cursor-pointer' : ''}`}
-      onClick={isTerminal ? onToggle : undefined}
+      }`}
+      onClick={onViewDetails ? () => onViewDetails() : (isTerminal ? onToggle : undefined)}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -142,20 +142,6 @@ function JobCard({
       <div className="flex items-center justify-between mt-1.5">
         <StatusBadge status={job.status} />
         <div className="flex items-center gap-1">
-          {onViewDetails && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewDetails();
-              }}
-              className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
-              title="View details"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-              </svg>
-            </button>
-          )}
           {!isTerminal && (
             <button
               onClick={(e) => {
@@ -173,8 +159,8 @@ function JobCard({
         </div>
       </div>
 
-      {/* Error details */}
-      {job.status === 'failed' && job.error && expanded && (
+      {/* Error details — fallback for when dockview detail panel is not available */}
+      {!onViewDetails && job.status === 'failed' && job.error && expanded && (
         <div className="mt-2 p-2 rounded bg-destructive/5 border border-destructive/20">
           <pre className="text-[10px] text-destructive/80 whitespace-pre-wrap break-all font-mono leading-relaxed max-h-24 overflow-y-auto">
             {job.error}
@@ -247,9 +233,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({
     const provider = availableProviders.find((p) => p.id === selectedProvider);
     onLaunch({
       provider: selectedProvider,
-      // Stub command — will be replaced with real agent invocation
-      command: ['sleep', String(10 + Math.floor(Math.random() * 21))],
-      label: provider ? `${provider.name}` : selectedProvider,
+      label: provider ? `${provider.name} Review` : selectedProvider,
     });
   };
 

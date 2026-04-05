@@ -63,7 +63,8 @@ import {
   startAnnotateServer,
   handleAnnotateServerReady,
 } from "@plannotator/server/annotate";
-import { type DiffType, getVcsContext, runVcsDiff } from "@plannotator/server/vcs";
+import { type DiffType, getVcsContext, runVcsDiff, gitRuntime } from "@plannotator/server/vcs";
+import { fetchRef, createWorktree, removeWorktree, ensureObjectAvailable } from "@plannotator/shared/worktree";
 import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getCliInstallUrl, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
 import { resolveMarkdownFile, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
@@ -85,6 +86,7 @@ import {
   isTopLevelHelpInvocation,
 } from "./cli";
 import path from "path";
+import { tmpdir } from "os";
 
 // Embed the built HTML at compile time
 // @ts-ignore - Bun import attribute for text
@@ -184,8 +186,18 @@ if (args[0] === "sessions") {
   // CODE REVIEW MODE
   // ============================================
 
+  // Parse --local flag (strip before URL detection)
+  const localIdx = args.indexOf("--local");
+  const useLocal = localIdx !== -1;
+  if (localIdx !== -1) args.splice(localIdx, 1);
+
   const urlArg = args[1];
   const isPRMode = urlArg?.startsWith("http://") || urlArg?.startsWith("https://");
+
+  if (useLocal && !isPRMode) {
+    console.error("--local requires a PR/MR URL");
+    process.exit(1);
+  }
 
   let rawPatch: string;
   let gitRef: string;
@@ -193,6 +205,7 @@ if (args[0] === "sessions") {
   let gitContext: Awaited<ReturnType<typeof getVcsContext>> | undefined;
   let prMetadata: Awaited<ReturnType<typeof fetchPR>>["metadata"] | undefined;
   let initialDiffType: DiffType | undefined;
+  let worktreeCleanup: (() => void | Promise<void>) | undefined;
 
   if (isPRMode) {
     // --- PR Review Mode ---
@@ -231,6 +244,66 @@ if (args[0] === "sessions") {
       console.error(err instanceof Error ? err.message : "Failed to fetch PR");
       process.exit(1);
     }
+
+    // --local: create a temporary worktree with the PR head for local file access
+    if (useLocal && prMetadata) {
+      try {
+        const repoDir = process.cwd();
+        let fetchRefStr: string;
+        let identifier: string;
+
+        if (prMetadata.platform === "github") {
+          fetchRefStr = `refs/pull/${prMetadata.number}/head`;
+          identifier = `${prMetadata.owner}-${prMetadata.repo}-${prMetadata.number}`;
+        } else {
+          fetchRefStr = `refs/merge-requests/${prMetadata.iid}/head`;
+          identifier = `${prMetadata.projectPath.replace(/\//g, "-")}-${prMetadata.iid}`;
+        }
+
+        console.error("Fetching PR branch and creating local worktree...");
+        await fetchRef(gitRuntime, fetchRefStr, { cwd: repoDir });
+
+        // Ensure base SHA is available (needed for branch diff)
+        const baseAvailable = await ensureObjectAvailable(gitRuntime, prMetadata.baseSha, { cwd: repoDir });
+        if (!baseAvailable) {
+          console.error(`Warning: base SHA ${prMetadata.baseSha.slice(0, 8)} not available locally — branch diff may be incomplete`);
+        }
+
+        const suffix = Math.random().toString(36).slice(2, 8);
+        const worktreePath = path.join(tmpdir(), `plannotator-pr-${identifier}-${suffix}`);
+
+        const { worktreePath: createdPath } = await createWorktree(gitRuntime, {
+          ref: "FETCH_HEAD",
+          path: worktreePath,
+          detach: true,
+          cwd: repoDir,
+        });
+
+        // Build git context from the worktree
+        gitContext = await getVcsContext(createdPath);
+        // Override default branch with the PR's actual base branch
+        gitContext.defaultBranch = prMetadata.baseBranch;
+
+        // Compute diff locally (more accurate than platform diff)
+        initialDiffType = "branch";
+        const localDiff = await runVcsDiff("branch", prMetadata.baseBranch, createdPath);
+        rawPatch = localDiff.patch;
+        gitRef = localDiff.label || gitRef;
+
+        // Register cleanup
+        worktreeCleanup = () => removeWorktree(gitRuntime, createdPath, { force: true, cwd: repoDir });
+        process.on("exit", () => {
+          try { Bun.spawnSync(["git", "worktree", "remove", "--force", createdPath]); } catch {}
+        });
+
+        console.error(`Local worktree created at ${createdPath}`);
+      } catch (err) {
+        console.error(`Warning: --local worktree creation failed, falling back to remote diff`);
+        console.error(err instanceof Error ? err.message : String(err));
+        // gitContext remains undefined = pure PR mode fallback
+        worktreeCleanup = undefined;
+      }
+    }
   } else {
     // --- Local Review Mode ---
     gitContext = await getVcsContext();
@@ -249,12 +322,13 @@ if (args[0] === "sessions") {
     gitRef,
     error: diffError,
     origin: detectedOrigin,
-    diffType: isPRMode ? undefined : (initialDiffType ?? "uncommitted"),
+    diffType: gitContext ? (initialDiffType ?? "uncommitted") : undefined,
     gitContext,
     prMetadata,
     sharingEnabled,
     shareBaseUrl,
     htmlContent: reviewHtmlContent,
+    onCleanup: worktreeCleanup,
     onReady: async (url, isRemote, port) => {
       handleReviewServerReady(url, isRemote, port);
 

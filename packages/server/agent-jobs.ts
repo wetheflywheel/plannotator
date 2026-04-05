@@ -56,6 +56,17 @@ export interface AgentJobHandlerOptions {
   getServerUrl: () => string;
   /** Returns the working directory for spawned processes. */
   getCwd: () => string;
+  /**
+   * Build the command server-side for a given provider.
+   * Return an object with the command to spawn (and optional output path for result ingestion).
+   * Return null to reject or fall through to frontend-supplied command.
+   */
+  buildCommand?: (provider: string) => Promise<{ command: string[]; outputPath?: string; label?: string } | null>;
+  /**
+   * Called after a job process exits with exit code 0.
+   * Use for result ingestion (e.g., reading an output file and pushing annotations).
+   */
+  onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string }) => void | Promise<void>;
 }
 
 export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJobHandler {
@@ -63,6 +74,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
 
   // --- State ---
   const jobs = new Map<string, { info: AgentJobInfo; proc: ReturnType<typeof Bun.spawn> | null }>();
+  const jobOutputPaths = new Map<string, string>();
   const subscribers = new Set<ReadableStreamDefaultController>();
   const encoder = new TextEncoder();
   let version = 0;
@@ -97,6 +109,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     provider: string,
     command: string[],
     label: string,
+    outputPath?: string,
   ): AgentJobInfo {
     const id = crypto.randomUUID();
     const source = jobSource(id);
@@ -109,6 +122,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
       status: "starting",
       startedAt: Date.now(),
       command,
+      cwd: getCwd(),
     };
 
     let proc: ReturnType<typeof Bun.spawn> | null = null;
@@ -127,10 +141,14 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
 
       info.status = "running";
       jobs.set(id, { info, proc });
+      if (outputPath) jobOutputPaths.set(id, outputPath);
       broadcast({ type: "job:started", job: { ...info } });
 
-      // Drain stderr continuously to prevent pipe-full deadlock
+      // Drain stderr: capture tail for error reporting + broadcast live log deltas
       let stderrBuf = "";
+      let logPending = "";
+      let logFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
       if (proc.stderr && typeof proc.stderr !== "number") {
         (async () => {
           try {
@@ -138,6 +156,23 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             for await (const chunk of reader) {
               const text = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
               stderrBuf = (stderrBuf + text).slice(-500);
+              logPending += text;
+
+              if (!logFlushTimer) {
+                logFlushTimer = setTimeout(() => {
+                  if (logPending) {
+                    broadcast({ type: "job:log", jobId: id, delta: logPending });
+                    logPending = "";
+                  }
+                  logFlushTimer = null;
+                }, 200);
+              }
+            }
+            // Flush remaining on stream close
+            if (logFlushTimer) { clearTimeout(logFlushTimer); logFlushTimer = null; }
+            if (logPending) {
+              broadcast({ type: "job:log", jobId: id, delta: logPending });
+              logPending = "";
             }
           } catch {
             // Stream closed or already consumed
@@ -146,7 +181,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
       }
 
       // Monitor process exit
-      proc.exited.then((exitCode) => {
+      proc.exited.then(async (exitCode) => {
         const entry = jobs.get(id);
         if (!entry || isTerminalStatus(entry.info.status)) return;
 
@@ -158,7 +193,20 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
           entry.info.error = stderrBuf;
         }
 
+        // Ingest results before broadcasting completion so annotations arrive first
+        const outputPath = jobOutputPaths.get(id);
+        if (exitCode === 0 && options.onJobComplete) {
+          try {
+            await options.onJobComplete(entry.info, { outputPath });
+          } catch {
+            // Result ingestion failure shouldn't prevent job completion broadcast
+          }
+        }
+        jobOutputPaths.delete(id);
+
         broadcast({ type: "job:completed", job: { ...entry.info } });
+      }).catch(() => {
+        // Guard against unhandled rejection from unexpected runtime errors
       });
     } catch (err) {
       // Spawn itself failed (e.g., command not found).
@@ -284,9 +332,10 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
         try {
           const body = await req.json();
           const provider = typeof body.provider === "string" ? body.provider : "shell";
-          const rawCommand = Array.isArray(body.command) ? body.command : [];
-          const command = rawCommand.filter((c: unknown): c is string => typeof c === "string");
-          const label = typeof body.label === "string" ? body.label : `${provider} agent`;
+          let rawCommand = Array.isArray(body.command) ? body.command : [];
+          let command = rawCommand.filter((c: unknown): c is string => typeof c === "string");
+          let label = typeof body.label === "string" ? body.label : `${provider} agent`;
+          let outputPath: string | undefined;
 
           // Validate provider is a known, available capability
           const cap = capabilities.find((c) => c.id === provider);
@@ -297,6 +346,16 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             );
           }
 
+          // For non-shell providers, try server-side command building
+          if (options.buildCommand && provider !== "shell") {
+            const built = await options.buildCommand(provider);
+            if (built) {
+              command = built.command;
+              outputPath = built.outputPath;
+              if (built.label) label = built.label;
+            }
+          }
+
           if (command.length === 0) {
             return Response.json(
               { error: 'Missing "command" array' },
@@ -304,7 +363,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             );
           }
 
-          const job = spawnJob(provider, command, label);
+          const job = spawnJob(provider, command, label, outputPath);
           return Response.json({ job }, { status: 201 });
         } catch {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });

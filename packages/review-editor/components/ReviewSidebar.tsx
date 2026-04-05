@@ -17,9 +17,7 @@ import type { DiffFile } from '../types';
 
 type ReviewSidebarTab = 'annotations' | 'ai' | 'agents';
 
-// Temporary hard kill-switch for review agents in the sidebar.
-// Keep local and explicit until the feature is ready to expose again.
-const REVIEW_AGENTS_ENABLED = false;
+const REVIEW_AGENTS_ENABLED = true;
 
 interface ReviewSidebarProps {
   isOpen: boolean;

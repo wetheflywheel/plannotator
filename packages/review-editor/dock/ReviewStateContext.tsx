@@ -67,6 +67,8 @@ export interface ReviewState {
 
   // Agent jobs
   agentJobs: AgentJobInfo[];
+  /** Live stderr logs per job ID (accumulated deltas). */
+  jobLogs: Map<string, string>;
 
   // PR
   prMetadata: PRMetadata | null;

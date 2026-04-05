@@ -18,6 +18,14 @@ import { contentHash, deleteDraft } from "./draft";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { createAgentJobHandler } from "./agent-jobs";
+import {
+  CODEX_REVIEW_SYSTEM_PROMPT,
+  buildCodexReviewUserMessage,
+  buildCodexCommand,
+  generateOutputPath,
+  parseCodexOutput,
+  transformCodexFindings,
+} from "./codex-review";
 import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { type PRMetadata, type PRReviewFileComment, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, getPRUser, prRefFromMetadata, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
 import { createAIEndpoints, ProviderRegistry, SessionManager, createProvider, type AIEndpoints, type PiSDKConfig } from "@plannotator/ai";
@@ -57,6 +65,8 @@ export interface ReviewServerOptions {
   opencodeClient?: OpencodeClient;
   /** PR metadata when reviewing a pull request (PR mode) */
   prMetadata?: PRMetadata;
+  /** Cleanup callback invoked when server stops (e.g., remove temp worktree) */
+  onCleanup?: () => void | Promise<void>;
 }
 
 export interface ReviewServerResult {
@@ -96,6 +106,7 @@ export async function startReviewServer(
   const { htmlContent, origin, gitContext, sharingEnabled = true, shareBaseUrl, onReady, prMetadata } = options;
 
   const isPRMode = !!prMetadata;
+  const hasLocalAccess = !!gitContext;
   const draftKey = contentHash(options.rawPatch);
   const editorAnnotations = createEditorAnnotationHandler();
   const externalAnnotations = createExternalAnnotationHandler("review");
@@ -113,6 +124,49 @@ export async function startReviewServer(
     getServerUrl: () => serverUrl,
     getCwd: () => {
       return resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
+    },
+
+    async buildCommand(provider) {
+      if (provider !== "codex") return null;
+
+      const cwd = resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
+      const outputPath = generateOutputPath();
+
+      // Build the two-layer prompt: system prompt + dynamic user message
+      const userMessage = buildCodexReviewUserMessage(currentPatch, currentDiffType, gitContext, prMetadata);
+      const prompt = CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage;
+
+      const command = await buildCodexCommand({
+        cwd,
+        outputPath,
+        prompt,
+      });
+
+      return { command, outputPath, label: "Codex Review" };
+    },
+
+    async onJobComplete(job, meta) {
+      if (!meta.outputPath || job.provider !== "codex") return;
+
+      const output = await parseCodexOutput(meta.outputPath);
+      if (!output) return;
+
+      // Set summary on the job — flows through job:completed broadcast
+      job.summary = {
+        correctness: output.overall_correctness,
+        explanation: output.overall_explanation,
+        confidence: output.overall_confidence_score,
+      };
+
+      if (output.findings.length > 0) {
+        const cwd = resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
+        const annotations = transformCodexFindings(output.findings, job.source, cwd);
+        const result = externalAnnotations.addAnnotations({ annotations });
+
+        if ("error" in result) {
+          console.error("[codex-review] addAnnotations error:", result.error);
+        }
+      }
     },
   });
 
@@ -260,8 +314,8 @@ export async function startReviewServer(
               rawPatch: currentPatch,
               gitRef: currentGitRef,
               origin,
-              diffType: isPRMode ? undefined : currentDiffType,
-              gitContext: isPRMode ? undefined : gitContext,
+              diffType: hasLocalAccess ? currentDiffType : undefined,
+              gitContext: hasLocalAccess ? gitContext : undefined,
               sharingEnabled,
               shareBaseUrl,
               repoInfo,
@@ -273,11 +327,11 @@ export async function startReviewServer(
             });
           }
 
-          // API: Switch diff type (disabled in PR mode)
+          // API: Switch diff type (requires local file access)
           if (url.pathname === "/api/diff/switch" && req.method === "POST") {
-            if (isPRMode) {
+            if (!hasLocalAccess) {
               return Response.json(
-                { error: "Not available for PR reviews" },
+                { error: "Not available without local file access" },
                 { status: 400 },
               );
             }
@@ -351,8 +405,22 @@ export async function startReviewServer(
               }
             }
 
+            // Prefer local file access (works for both local mode and hybrid --local mode)
+            if (hasLocalAccess) {
+              const defaultBranch = gitContext?.defaultBranch || "main";
+              const defaultCwd = gitContext?.cwd;
+              const result = await getVcsFileContentsForDiff(
+                currentDiffType,
+                defaultBranch,
+                filePath,
+                oldPath,
+                defaultCwd,
+              );
+              return Response.json(result);
+            }
+
             if (isPRMode) {
-              // Fetch file content from platform API using base/head SHAs
+              // Pure PR mode: fetch from platform API using base/head SHAs
               const [oldContent, newContent] = await Promise.all([
                 fetchPRFileContent(prRef!, prMetadata.baseSha, oldPath || filePath),
                 fetchPRFileContent(prRef!, prMetadata.headSha, filePath),
@@ -360,16 +428,7 @@ export async function startReviewServer(
               return Response.json({ oldContent, newContent });
             }
 
-            const defaultBranch = gitContext?.defaultBranch || "main";
-            const defaultCwd = gitContext?.cwd;
-            const result = await getVcsFileContentsForDiff(
-              currentDiffType,
-              defaultBranch,
-              filePath,
-              oldPath,
-              defaultCwd,
-            );
-            return Response.json(result);
+            return Response.json({ error: "No file access available" }, { status: 400 });
           }
 
           // API: Stage / unstage a file (disabled when VCS doesn't support it)
@@ -595,6 +654,13 @@ export async function startReviewServer(
       aiSessionManager.disposeAll();
       aiRegistry.disposeAll();
       server.stop();
+      // Invoke cleanup callback (e.g., remove temp worktree)
+      if (options.onCleanup) {
+        try {
+          const result = options.onCleanup();
+          if (result instanceof Promise) result.catch(() => {});
+        } catch { /* best effort */ }
+      }
     },
   };
 }
