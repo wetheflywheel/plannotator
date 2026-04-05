@@ -92,6 +92,12 @@ import {
 } from "./cli";
 import path from "path";
 import { tmpdir } from "os";
+import { PLAN_LIBRARY, REVIEW_LIBRARY } from "../../../packages/automations/generated";
+import { templateToEntry, type AutomationEntry } from "@plannotator/server/automations";
+
+// Pre-compute bundled automations at startup
+const bundledPlanAutomations: AutomationEntry[] = PLAN_LIBRARY.map(t => templateToEntry(t, "plan"));
+const bundledReviewAutomations: AutomationEntry[] = REVIEW_LIBRARY.map(t => templateToEntry(t, "review"));
 
 // Embed the built HTML at compile time
 // @ts-ignore - Bun import attribute for text
@@ -411,6 +417,7 @@ if (args[0] === "sessions") {
     shareBaseUrl,
     htmlContent: reviewHtmlContent,
     onCleanup: worktreeCleanup,
+    bundledAutomations: bundledReviewAutomations,
     onReady: async (url, isRemote, port) => {
       await handleReviewServerReady(url, isRemote, port);
 
@@ -743,6 +750,7 @@ if (args[0] === "sessions") {
     sharingEnabled,
     shareBaseUrl,
     htmlContent: planHtmlContent,
+    bundledAutomations: bundledPlanAutomations,
     onReady: async (url, isRemote, port) => {
       await handleServerReady(url, isRemote, port);
     },
@@ -805,6 +813,7 @@ if (args[0] === "sessions") {
     shareBaseUrl,
     pasteApiUrl,
     htmlContent: planHtmlContent,
+    bundledAutomations: bundledPlanAutomations,
     onReady: async (url, isRemote, port) => {
       await handleServerReady(url, isRemote, port);
 
@@ -1002,6 +1011,7 @@ if (args[0] === "sessions") {
     shareBaseUrl,
     pasteApiUrl,
     htmlContent: planHtmlContent,
+    bundledAutomations: bundledPlanAutomations,
     onReady: async (url, isRemote, port) => {
       await handleServerReady(url, isRemote, port);
 

@@ -11,6 +11,7 @@
 
 import type { Origin } from "@plannotator/shared/agents";
 import { resolve } from "path";
+import { homedir } from "os";
 import { isRemoteSession, getServerHostname, getServerPort } from "./remote";
 import { openEditorDiff } from "./ide";
 import {
@@ -54,6 +55,28 @@ export * from "./integrations";
 export * from "./storage";
 export { handleServerReady } from "./shared-handlers";
 export { type VaultNode, buildFileTree } from "@plannotator/shared/reference-common";
+
+// --- Helpers ---
+
+/** Load OpenRouter API key from env or ~/.env.shared */
+async function loadOpenRouterKey(): Promise<string | null> {
+  if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
+  const home = process.env.HOME || homedir();
+  for (const envPath of [
+    resolve(home, "opt/security-mgmt/.env.shared"),
+    resolve(home, ".env.shared"),
+  ]) {
+    try {
+      const content = await Bun.file(envPath).text();
+      for (const line of content.split("\n")) {
+        if (line.startsWith("OPENROUTER_API_KEY=")) {
+          return line.split("=", 2)[1].trim().replace(/^['"]|['"]$/g, "");
+        }
+      }
+    } catch { /* file not found */ }
+  }
+  return null;
+}
 
 // --- Types ---
 
@@ -417,6 +440,256 @@ export async function startPlannotatorServer(
             }
 
             return Response.json({ ok: true, results });
+          }
+
+          // --- Multi-LLM Review Endpoints ---
+
+          // API: Multi-LLM review (streaming SSE)
+          if (url.pathname === "/api/multi-llm-review-stream" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { plan?: string; question?: string };
+              const planText = body.plan || plan;
+              const question = body.question || `Review this implementation plan and provide feedback on completeness, risks, and improvements:\n${planText}`;
+
+              const councilPaths = [
+                resolve(import.meta.dir, "../../../../skills/multi-llm-deliberation/council.py"),
+                resolve(process.env.HOME || homedir(), "opt/agentic-coding/skills/multi-llm-deliberation/council.py"),
+              ];
+              let councilPath: string | null = null;
+              for (const p of councilPaths) {
+                if (await Bun.file(p).exists()) { councilPath = p; break; }
+              }
+              if (!councilPath) {
+                return Response.json({ error: "council.py not found." }, { status: 404 });
+              }
+
+              const proc = Bun.spawn(["python3", councilPath, "--json", question], {
+                stdout: "pipe",
+                stderr: "pipe",
+                env: { ...process.env },
+              });
+
+              const stdoutPromise = new Response(proc.stdout).text();
+              const encoder = new TextEncoder();
+              const decoder = new TextDecoder();
+
+              const stream = new ReadableStream({
+                async start(controller) {
+                  // Heartbeat keeps the SSE connection alive during long model calls
+                  const heartbeat = setInterval(() => {
+                    try { controller.enqueue(encoder.encode(": heartbeat\n")); } catch {}
+                  }, 5_000);
+
+                  try {
+                    // Stream progress events from council.py stderr
+                    const reader = (proc.stderr as ReadableStream).getReader();
+                    let buffer = "";
+                    try {
+                      while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split("\n");
+                        buffer = lines.pop() || "";
+                        for (const line of lines) {
+                          const trimmed = line.trim();
+                          if (!trimmed) continue;
+                          try {
+                            JSON.parse(trimmed);
+                            controller.enqueue(encoder.encode(`data: ${trimmed}\n`));
+                          } catch {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "log", message: trimmed })}\n`));
+                          }
+                        }
+                      }
+                      if (buffer.trim()) {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "log", message: buffer.trim() })}\n`));
+                      }
+                    } catch { /* reader error */ }
+
+                    // Process final result from stdout
+                    const stdout = await stdoutPromise;
+                    const exitCode = await proc.exited;
+
+                    if (exitCode !== 0) {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "error", message: `Deliberation failed (exit ${exitCode})` })}\n`));
+                    } else {
+                      try {
+                        const structured = JSON.parse(stdout);
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "result", ok: true, result: structured.consensus, structured })}\n`));
+                      } catch {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "result", ok: true, result: stdout })}\n`));
+                      }
+                    }
+                  } finally {
+                    clearInterval(heartbeat);
+                    controller.close();
+                  }
+                },
+              });
+
+              // Disable Bun's idle timeout for this SSE connection — council.py can take several minutes
+              server.timeout(req, 0);
+
+              return new Response(stream, {
+                headers: {
+                  "Content-Type": "text/event-stream",
+                  "Cache-Control": "no-cache",
+                  "Connection": "keep-alive",
+                },
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Streaming review failed";
+              return Response.json({ error: message }, { status: 500 });
+            }
+          }
+
+          // API: Multi-LLM review (non-streaming fallback)
+          if (url.pathname === "/api/multi-llm-review" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { plan?: string; question?: string };
+              const planText = body.plan || plan;
+              const question = body.question || `Review this implementation plan and provide feedback on completeness, risks, and improvements:\n${planText}`;
+
+              const councilPaths = [
+                resolve(import.meta.dir, "../../../../skills/multi-llm-deliberation/council.py"),
+                resolve(process.env.HOME || homedir(), "opt/agentic-coding/skills/multi-llm-deliberation/council.py"),
+              ];
+              let councilPath: string | null = null;
+              for (const p of councilPaths) {
+                if (await Bun.file(p).exists()) { councilPath = p; break; }
+              }
+              if (!councilPath) {
+                return Response.json({ error: "council.py not found. Install multi-llm-deliberation skill." }, { status: 404 });
+              }
+
+              const proc = Bun.spawn(["python3", councilPath, "--json", question], {
+                stdout: "pipe",
+                stderr: "pipe",
+                env: { ...process.env },
+              });
+
+              const [stdout, stderr] = await Promise.all([
+                new Response(proc.stdout).text(),
+                new Response(proc.stderr).text(),
+              ]);
+              const exitCode = await proc.exited;
+
+              if (exitCode !== 0) {
+                console.error(`[Multi-LLM] stderr: ${stderr}`);
+                return Response.json({ error: stderr || "council.py failed", exitCode }, { status: 500 });
+              }
+
+              try {
+                const structured = JSON.parse(stdout);
+                return Response.json({ ok: true, result: structured.consensus, structured, stderr });
+              } catch {
+                return Response.json({ ok: true, result: stdout, stderr });
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Multi-LLM review failed";
+              return Response.json({ error: message }, { status: 500 });
+            }
+          }
+
+          // API: Apply multi-LLM review feedback to the plan
+          if (url.pathname === "/api/apply-review" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { plan: string; feedback: string };
+              if (!body.plan || !body.feedback) {
+                return Response.json({ error: "plan and feedback are required" }, { status: 400 });
+              }
+
+              const apiKey = await loadOpenRouterKey();
+              if (!apiKey) {
+                return Response.json({ error: "OPENROUTER_API_KEY not set" }, { status: 500 });
+              }
+
+              const revisionPrompt = `You are revising an implementation plan based on expert review feedback.
+
+Here is the ORIGINAL PLAN:
+${body.plan}
+
+Here is the REVIEW FEEDBACK from multiple AI models:
+${body.feedback}
+
+INSTRUCTIONS:
+- Produce an UPDATED version of the plan that incorporates the valid feedback
+- Keep the same markdown structure and heading hierarchy
+- Add, modify, or remove sections as the feedback suggests
+- Add new steps, edge cases, or considerations that were identified
+- If the feedback identifies risks, add mitigation strategies
+- Do NOT add a "changes made" section — just output the improved plan
+- Do NOT wrap in code fences — output raw markdown
+- Preserve the original plan's style and voice`;
+
+              const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                  "HTTP-Referer": "https://github.com/backnotprop/plannotator",
+                  "X-Title": "plannotator-apply-review",
+                },
+                body: JSON.stringify({
+                  model: "google/gemini-3-flash-preview",
+                  messages: [{ role: "user", content: revisionPrompt }],
+                  temperature: 0.3,
+                  max_tokens: 8192,
+                }),
+                signal: AbortSignal.timeout(120_000),
+              });
+
+              if (!orResponse.ok) {
+                const errBody = await orResponse.text();
+                console.error(`[Apply Review] OpenRouter error: ${orResponse.status} ${errBody}`);
+                return Response.json({ error: `OpenRouter API error: ${orResponse.status}` }, { status: 502 });
+              }
+
+              const orData = (await orResponse.json()) as { choices?: { message?: { content?: string } }[]; content?: string };
+              const revisedPlan = orData.choices?.[0]?.message?.content || orData.content || (typeof orData === "string" ? orData : null);
+
+              if (!revisedPlan) {
+                return Response.json({ error: "No response from revision model" }, { status: 502 });
+              }
+
+              const historyResult = saveToHistory(project, slug, revisedPlan);
+              const newVersionInfo = {
+                version: historyResult.version,
+                totalVersions: getVersionCount(project, slug),
+                project,
+              };
+
+              return Response.json({ ok: true, plan: revisedPlan, previousPlan: body.plan, versionInfo: newVersionInfo });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Apply review failed";
+              return Response.json({ error: message }, { status: 500 });
+            }
+          }
+
+          // API: OpenRouter balance check
+          if (url.pathname === "/api/openrouter/balance" && req.method === "GET") {
+            try {
+              const apiKey = await loadOpenRouterKey();
+              if (!apiKey) {
+                return Response.json({ ok: false, error: "OPENROUTER_API_KEY not set" }, { status: 500 });
+              }
+
+              const resp = await fetch("https://openrouter.ai/api/v1/auth/key", {
+                headers: { "Authorization": `Bearer ${apiKey}` },
+                signal: AbortSignal.timeout(10_000),
+              });
+
+              if (!resp.ok) {
+                return Response.json({ ok: false, error: `OpenRouter returned ${resp.status}` }, { status: 502 });
+              }
+
+              const data = (await resp.json()) as { data?: unknown };
+              return Response.json({ ok: true, data: data.data || data });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Balance check failed";
+              return Response.json({ ok: false, error: message }, { status: 500 });
+            }
           }
 
           // API: Approve plan
