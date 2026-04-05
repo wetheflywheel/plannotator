@@ -121,7 +121,7 @@ export const ReviewAgentJobDetailPanel: React.FC<IDockviewPanelProps> = (props) 
       {/* ── Content ── */}
       {activeTab === 'findings' ? (
         <ScrollFade>
-        <div className="px-6 py-3 space-y-4 max-w-2xl">
+        <div className="px-8 py-3 space-y-4 max-w-2xl">
           {/* Verdict — scrolls with content */}
           <VerdictCard summary={job.summary} isCorrect={isCorrect} terminal={terminal} />
 

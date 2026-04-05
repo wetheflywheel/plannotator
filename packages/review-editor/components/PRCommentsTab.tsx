@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import type { PRContext, PRComment, PRReview } from '@plannotator/shared/pr-provider';
+import type { PRContext, PRComment, PRReview, PRReviewThread } from '@plannotator/shared/pr-provider';
 import { MarkdownBody } from './PRSummaryTab';
+import { DiffHunkPreview } from './DiffHunkPreview';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,7 +14,8 @@ interface PRCommentsTabProps {
 
 type TimelineEntry =
   | { kind: 'comment'; data: PRComment }
-  | { kind: 'review'; data: PRReview };
+  | { kind: 'review'; data: PRReview }
+  | { kind: 'thread'; data: PRReviewThread };
 
 const REVIEW_STATE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   APPROVED: { bg: 'bg-success/15', text: 'text-success', label: 'Approved' },
@@ -42,12 +44,29 @@ function formatRelativeTime(iso: string): string {
 }
 
 function getEntryTime(entry: TimelineEntry): string {
-  return entry.kind === 'comment' ? entry.data.createdAt : (entry.data as PRReview).submittedAt;
+  if (entry.kind === 'comment') return entry.data.createdAt;
+  if (entry.kind === 'review') return entry.data.submittedAt;
+  return entry.data.comments[0]?.createdAt ?? '';
+}
+
+function getEntryAuthor(entry: TimelineEntry): string {
+  if (entry.kind === 'thread') return entry.data.comments[0]?.author ?? '';
+  return entry.data.author;
+}
+
+function getEntryBody(entry: TimelineEntry): string {
+  if (entry.kind === 'thread') return entry.data.comments.map((c) => c.body).join(' ');
+  return entry.data.body;
 }
 
 function matchesSearch(entry: TimelineEntry, query: string): boolean {
   const q = query.toLowerCase();
-  return entry.data.author.toLowerCase().includes(q) || entry.data.body.toLowerCase().includes(q);
+  const author = getEntryAuthor(entry).toLowerCase();
+  const body = getEntryBody(entry).toLowerCase();
+  if (entry.kind === 'thread') {
+    return author.includes(q) || body.includes(q) || entry.data.path.toLowerCase().includes(q);
+  }
+  return author.includes(q) || body.includes(q);
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -78,20 +97,23 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
       ...context.reviews
         .filter((r) => r.state !== 'COMMENTED' || r.body)
         .map((r): TimelineEntry => ({ kind: 'review', data: r })),
+      ...(context.reviewThreads ?? [])
+        .filter((t) => t.comments.length > 0)
+        .map((t): TimelineEntry => ({ kind: 'thread', data: t })),
     ];
     entries.sort((a, b) => new Date(getEntryTime(a)).getTime() - new Date(getEntryTime(b)).getTime());
     return entries;
-  }, [context.comments, context.reviews]);
+  }, [context.comments, context.reviews, context.reviewThreads]);
 
   const uniqueAuthors = useMemo(
-    () => [...new Set(baseTimeline.map((e) => e.data.author))].sort(),
+    () => [...new Set(baseTimeline.map((e) => getEntryAuthor(e)).filter(Boolean))].sort(),
     [baseTimeline],
   );
 
   const filteredTimeline = useMemo(() => {
     let result = baseTimeline;
     if (excludedAuthors.size > 0) {
-      result = result.filter((e) => !excludedAuthors.has(e.data.author));
+      result = result.filter((e) => !excludedAuthors.has(getEntryAuthor(e)));
     }
     if (searchQuery.trim()) {
       result = result.filter((e) => matchesSearch(e, searchQuery.trim()));
@@ -190,7 +212,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
   // --- Empty state (no comments at all) ---
   if (baseTimeline.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-center px-6">
+      <div className="h-full flex flex-col items-center justify-center text-center px-8">
         <div className="w-10 h-10 rounded-full bg-muted/50 flex items-center justify-center mb-3">
           <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -206,7 +228,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
   return (
     <div ref={containerRef} className="h-full flex flex-col">
       {/* ── Toolbar ── */}
-      <div className="flex-shrink-0 bg-background border-b border-border/30 px-6 py-2 space-y-2">
+      <div className="flex-shrink-0 bg-background border-b border-border/30 px-8 py-2 space-y-2">
         {/* Search */}
         <div className="relative">
           <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -290,7 +312,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
       </div>
 
       {/* ── Timeline ── */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="flex-1 overflow-y-auto px-8 py-4">
         <div className="space-y-3 max-w-2xl">
         {displayTimeline.length === 0 ? (
           <div className="text-center py-8">
@@ -304,9 +326,22 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
             const id = entry.data.id;
             const isSelected = selectedId === id;
             const isCollapsed = collapsedIds.has(id);
+
+            if (entry.kind === 'thread') {
+              return (
+                <ThreadCard
+                  key={id}
+                  thread={entry.data}
+                  isSelected={isSelected}
+                  isCollapsed={isCollapsed}
+                  onSelect={() => setSelectedId(isSelected ? null : id)}
+                  onToggleCollapse={() => toggleCollapsed(id)}
+                />
+              );
+            }
+
             const isReview = entry.kind === 'review';
             const review = isReview ? (entry.data as PRReview) : null;
-            // Only show badge for meaningful review states — "COMMENTED" is noise
             const style = review && review.state !== 'COMMENTED'
               ? (REVIEW_STATE_STYLES[review.state] ?? null)
               : null;
@@ -316,13 +351,12 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
                 key={id}
                 data-comment-id={id}
                 onClick={() => setSelectedId(isSelected ? null : id)}
-                className={`group/card rounded bg-muted/10 border p-3 cursor-pointer transition-all duration-150 ${
+                className={`group/card rounded bg-card border p-3 cursor-pointer transition-all duration-150 shadow-[0_1px_3px_rgba(0,0,0,0.06)] ${
                   isSelected
                     ? 'border-primary/20 bg-primary/5 ring-1 ring-primary/10'
-                    : 'border-border/30 hover:bg-muted/20'
+                    : 'border-border/40 hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]'
                 }`}
               >
-                {/* Header — always visible, click to collapse */}
                 <div
                   className="flex items-center justify-between"
                   onClick={(e) => { e.stopPropagation(); toggleCollapsed(id); }}
@@ -347,14 +381,12 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
                   </div>
                 </div>
 
-                {/* Body — hidden when collapsed */}
                 {!isCollapsed && entry.data.body && (
                   <div className="mt-2 text-xs text-foreground/80 leading-relaxed review-comment-markdown">
                     <MarkdownBody markdown={entry.data.body} />
                   </div>
                 )}
 
-                {/* Actions — hover reveal */}
                 {!isCollapsed && (
                   <CommentActions
                     url={entry.kind === 'comment' ? (entry.data as PRComment).url : (entry.data as PRReview).url}
@@ -374,6 +406,131 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = ({ context, platformU
 // ---------------------------------------------------------------------------
 // Subcomponents
 // ---------------------------------------------------------------------------
+
+function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollapse }: {
+  thread: PRReviewThread;
+  isSelected: boolean;
+  isCollapsed: boolean;
+  onSelect: () => void;
+  onToggleCollapse: () => void;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const first = thread.comments[0];
+  if (!first) return null;
+  const replies = thread.comments.slice(1);
+  const isDimmed = thread.isResolved || thread.isOutdated;
+  const lineLabel = thread.startLine && thread.startLine !== thread.line
+    ? `L${thread.startLine}–${thread.line}`
+    : thread.line ? `L${thread.line}` : '';
+
+  return (
+    <div
+      data-comment-id={thread.id}
+      onClick={onSelect}
+      className={`group/card rounded border p-3 cursor-pointer transition-all duration-150 ${
+        isDimmed ? 'bg-card/50 shadow-[0_1px_2px_rgba(0,0,0,0.03)]' : 'bg-card shadow-[0_1px_3px_rgba(0,0,0,0.06)]'
+      } ${
+        isSelected
+          ? 'border-primary/20 bg-primary/5 ring-1 ring-primary/10'
+          : 'border-border/40 hover:shadow-[0_2px_6px_rgba(0,0,0,0.08)]'
+      }`}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between"
+        onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`text-xs font-semibold truncate ${thread.isResolved ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+            {first.author || 'unknown'}
+          </span>
+          {thread.isOutdated && (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning flex-shrink-0">
+              Outdated
+            </span>
+          )}
+          {thread.isResolved && (
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-success/15 text-success flex-shrink-0">
+              Resolved
+            </span>
+          )}
+          {thread.path && (
+            <span className="text-[10px] font-mono text-muted-foreground truncate flex-shrink min-w-0">
+              {thread.path.split('/').pop()}{lineLabel ? `:${lineLabel}` : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {replies.length > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              {replies.length} repl{replies.length === 1 ? 'y' : 'ies'}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">
+            {formatRelativeTime(first.createdAt)}
+          </span>
+          <svg className={`w-3 h-3 text-muted-foreground/40 transition-transform duration-150 ${isCollapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
+
+      {/* Body */}
+      {!isCollapsed && (
+        <>
+          {/* Diff hunk */}
+          {first.diffHunk && (
+            <div className="mt-2">
+              <DiffHunkPreview hunk={first.diffHunk} maxHeight={96} />
+            </div>
+          )}
+
+          {/* First comment body — truncated with fade for resolved/outdated */}
+          {first.body && (
+            <div className={`relative mt-2 ${isDimmed && !isExpanded ? 'max-h-16 overflow-hidden' : ''}`}>
+              <div className={`text-xs leading-relaxed review-comment-markdown ${isDimmed && !isExpanded ? 'text-muted-foreground' : 'text-foreground/80'}`}>
+                <MarkdownBody markdown={first.body} />
+              </div>
+              {isDimmed && !isExpanded && (
+                <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-card to-transparent pointer-events-none" />
+              )}
+            </div>
+          )}
+
+          {/* Expand button for dimmed threads */}
+          {isDimmed && !isExpanded && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsExpanded(true); }}
+              className="mt-1 text-[10px] text-primary/70 hover:text-primary transition-colors"
+            >
+              Show full comment{replies.length > 0 ? ` + ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}` : ''}
+            </button>
+          )}
+
+          {/* Replies — only shown when expanded or not dimmed */}
+          {(!isDimmed || isExpanded) && replies.length > 0 && (
+            <div className="mt-2 ml-4 space-y-2 border-l border-border/30 pl-3">
+              {replies.map((reply) => (
+                <div key={reply.id}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-semibold text-foreground">{reply.author}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatRelativeTime(reply.createdAt)}</span>
+                  </div>
+                  <div className="text-xs text-foreground/80 leading-relaxed review-comment-markdown">
+                    <MarkdownBody markdown={reply.body} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Actions */}
+          <CommentActions url={first.url} body={first.body} />
+        </>
+      )}
+    </div>
+  );
+}
 
 function CommentActions({ url, body }: { url?: string; body: string }) {
   const [copied, setCopied] = useState(false);

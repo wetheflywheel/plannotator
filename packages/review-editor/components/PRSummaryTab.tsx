@@ -97,7 +97,7 @@ export function MarkdownBody({ markdown }: { markdown: string }) {
 
 export const PRSummaryTab: React.FC<PRSummaryTabProps> = ({ context, metadata }) => {
   return (
-    <div className="px-6 py-4 space-y-4 max-w-2xl">
+    <div className="px-8 py-4 space-y-4 max-w-2xl">
       {/* PR title + state */}
       <div className="space-y-2">
         <div className="flex items-start gap-2">

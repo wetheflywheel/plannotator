@@ -94,7 +94,7 @@ export const PRChecksTab: React.FC<PRChecksTabProps> = ({ context }) => {
   const mergeableConflict = !isMerged && !isClosed && context.mergeable === 'CONFLICTING';
 
   return (
-    <div className="px-6 py-4 space-y-4 max-w-2xl">
+    <div className="px-8 py-4 space-y-4 max-w-2xl">
       {/* Merge readiness */}
       <div className="space-y-2">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
