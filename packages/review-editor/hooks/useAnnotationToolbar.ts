@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { CodeAnnotation, SelectedLineRange, CodeAnnotationType } from '@plannotator/ui/types';
+import { CodeAnnotation, SelectedLineRange, CodeAnnotationType, ConventionalLabel, ConventionalDecoration } from '@plannotator/ui/types';
 import { useDismissOnOutsideAndEscape } from '@plannotator/ui/hooks/useDismissOnOutsideAndEscape';
 import { extractLinesFromPatch } from '../utils/patchParser';
 
@@ -13,8 +13,8 @@ interface UseAnnotationToolbarArgs {
   filePath: string;
   isFocused: boolean;
   onLineSelection: (range: SelectedLineRange | null) => void;
-  onAddAnnotation: (type: CodeAnnotationType, text?: string, suggestedCode?: string, originalCode?: string) => void;
-  onEditAnnotation: (id: string, text?: string, suggestedCode?: string, originalCode?: string) => void;
+  onAddAnnotation: (type: CodeAnnotationType, text?: string, suggestedCode?: string, originalCode?: string, conventionalLabel?: ConventionalLabel, decorations?: ConventionalDecoration[]) => void;
+  onEditAnnotation: (id: string, text?: string, suggestedCode?: string, originalCode?: string, conventionalLabel?: ConventionalLabel, decorations?: ConventionalDecoration[]) => void;
 }
 
 // Per-range draft storage (survives component remounts, e.g. file switches)
@@ -22,6 +22,8 @@ interface Draft {
   commentText: string;
   suggestedCode: string;
   showSuggestedCode: boolean;
+  conventionalLabel: ConventionalLabel | null;
+  decorations: ConventionalDecoration[];
   range: SelectedLineRange;
   position: { top: number; left: number };
 }
@@ -47,10 +49,12 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
   const [showCodeModal, setShowCodeModal] = useState(false);
   const [modalLayout, setModalLayout] = useState<'horizontal' | 'vertical'>('horizontal');
   const [editingAnnotationId, setEditingAnnotationId] = useState<string | null>(null);
+  const [conventionalLabel, setConventionalLabel] = useState<ConventionalLabel | null>(null);
+  const [decorations, setDecorations] = useState<ConventionalDecoration[]>([]);
 
   // Refs to avoid stale closures in saveDraft
-  const formRef = useRef({ commentText, suggestedCode, showSuggestedCode });
-  formRef.current = { commentText, suggestedCode, showSuggestedCode };
+  const formRef = useRef({ commentText, suggestedCode, showSuggestedCode, conventionalLabel, decorations });
+  formRef.current = { commentText, suggestedCode, showSuggestedCode, conventionalLabel, decorations };
   const toolbarStateRef = useRef(toolbarState);
   toolbarStateRef.current = toolbarState;
   const editingRef = useRef(editingAnnotationId);
@@ -102,6 +106,8 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     setShowSuggestedCode(false);
     setShowCodeModal(false);
     setEditingAnnotationId(null);
+    setConventionalLabel(null);
+    setDecorations([]);
   }, []);
 
   // Track mouse position continuously for toolbar placement
@@ -127,10 +133,14 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
       setCommentText(draft.commentText);
       setSuggestedCode(draft.suggestedCode);
       setShowSuggestedCode(draft.showSuggestedCode);
+      setConventionalLabel(draft.conventionalLabel);
+      setDecorations(draft.decorations);
     } else {
       setCommentText('');
       setSuggestedCode('');
       setShowSuggestedCode(false);
+      setConventionalLabel(null);
+      setDecorations([]);
     }
 
     const mousePos = lastMousePosition.current;
@@ -163,15 +173,18 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     const code = hasCode ? suggestedCode : undefined;
     const original = hasCode && selectedOriginalCode ? selectedOriginalCode : undefined;
 
+    const label = conventionalLabel || undefined;
+    const decs = decorations.length > 0 ? decorations : undefined;
+
     if (editingAnnotationId) {
-      onEditAnnotation(editingAnnotationId, text, code, original);
+      onEditAnnotation(editingAnnotationId, text, code, original, label, decs);
     } else {
-      onAddAnnotation('comment', text, code, original);
+      onAddAnnotation('comment', text, code, original, label, decs);
     }
 
     clearDraft();
     resetForm();
-  }, [toolbarState, commentText, suggestedCode, selectedOriginalCode, editingAnnotationId, onAddAnnotation, onEditAnnotation, clearDraft, resetForm]);
+  }, [toolbarState, commentText, suggestedCode, selectedOriginalCode, editingAnnotationId, conventionalLabel, decorations, onAddAnnotation, onEditAnnotation, clearDraft, resetForm]);
 
   // Start editing an existing annotation
   const startEdit = useCallback((annotation: CodeAnnotation) => {
@@ -181,6 +194,8 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     setSelectedOriginalCode(annotation.originalCode || '');
     setShowSuggestedCode(!!annotation.suggestedCode);
     setShowCodeModal(false);
+    setConventionalLabel(annotation.conventionalLabel || null);
+    setDecorations(annotation.decorations || []);
 
     // Position toolbar near the annotation using last known mouse position
     const mousePos = lastMousePosition.current;
@@ -234,6 +249,8 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
       setCommentText(draft.commentText);
       setSuggestedCode(draft.suggestedCode);
       setShowSuggestedCode(draft.showSuggestedCode);
+      setConventionalLabel(draft.conventionalLabel);
+      setDecorations(draft.decorations);
       setEditingAnnotationId(null);
       setShowCodeModal(false);
       setToolbarState({
@@ -266,6 +283,10 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     modalLayout,
     setModalLayout,
     editingAnnotationId,
+    conventionalLabel,
+    setConventionalLabel,
+    decorations,
+    setDecorations,
     // Refs
     toolbarRef,
     // Handlers

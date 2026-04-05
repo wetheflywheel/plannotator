@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CodeAnnotation, type EditorAnnotation } from '@plannotator/ui/types';
 import { isCurrentUser } from '@plannotator/ui/utils/identity';
 import { EditorAnnotationCard } from '@plannotator/ui/components/EditorAnnotationCard';
+import { ConventionalLabelBadge } from './ConventionalLabelPicker';
 import { HighlightedCode } from './HighlightedCode';
 import { detectLanguage } from '../utils/detectLanguage';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
@@ -361,6 +362,9 @@ export const ReviewSidebar: React.FC<ReviewSidebarProps> = ({
                                         ? `L${annotation.lineStart}`
                                         : `L${annotation.lineStart}-${annotation.lineEnd}`}
                                     </span>
+                                  )}
+                                  {annotation.conventionalLabel && (
+                                    <ConventionalLabelBadge label={annotation.conventionalLabel} decorations={annotation.decorations} />
                                   )}
                                   {annotation.author && (
                                     <span className={`text-[10px] truncate max-w-[100px] ${isCurrentUser(annotation.author) ? 'text-muted-foreground/50' : 'text-muted-foreground/70'}`}>

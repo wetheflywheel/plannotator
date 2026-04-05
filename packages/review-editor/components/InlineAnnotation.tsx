@@ -1,6 +1,7 @@
 import React from 'react';
 import { DiffAnnotationMetadata } from '@plannotator/ui/types';
 import { SuggestionBlock } from './SuggestionBlock';
+import { ConventionalLabelBadge } from './ConventionalLabelPicker';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
 
 interface InlineAnnotationProps {
@@ -26,6 +27,9 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
       onClick={() => onSelect(metadata.annotationId)}
     >
       <div className="review-comment-header">
+        {metadata.conventionalLabel && (
+          <ConventionalLabelBadge label={metadata.conventionalLabel} decorations={metadata.decorations} />
+        )}
         {metadata.author && <span className="text-xs text-muted-foreground">{metadata.author}</span>}
         <div className="review-comment-actions">
           <button

@@ -62,6 +62,24 @@ export interface DiffResult {
 export type CodeAnnotationType = 'comment' | 'suggestion' | 'concern';
 export type CodeAnnotationScope = 'line' | 'file';
 
+/** Conventional Comments label — see https://conventionalcomments.org */
+export type ConventionalLabel =
+  | 'praise'
+  | 'nitpick'
+  | 'suggestion'
+  | 'issue'
+  | 'todo'
+  | 'question'
+  | 'thought'
+  | 'chore'
+  | 'note'
+  | 'typo'
+  | 'polish'
+  | (string & {}); // Allow custom labels while preserving autocomplete for built-ins
+
+/** Conventional Comments decoration (parenthesized modifier) */
+export type ConventionalDecoration = 'blocking' | 'non-blocking' | 'if-minor';
+
 export interface CodeAnnotation {
   id: string;
   type: CodeAnnotationType;
@@ -76,6 +94,8 @@ export interface CodeAnnotation {
   createdAt: number;
   author?: string;
   source?: string; // External tool identifier (e.g., "eslint") — set when annotation comes from external API
+  conventionalLabel?: ConventionalLabel;
+  decorations?: ConventionalDecoration[];
 }
 
 // For @pierre/diffs integration
@@ -86,6 +106,8 @@ export interface DiffAnnotationMetadata {
   suggestedCode?: string;
   originalCode?: string;
   author?: string;
+  conventionalLabel?: ConventionalLabel;
+  decorations?: ConventionalDecoration[];
   // AI marker fields (set when kind === 'ai-marker')
   kind?: 'annotation' | 'ai-marker';
   questionId?: string;

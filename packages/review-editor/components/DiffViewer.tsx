@@ -7,6 +7,8 @@ import { CommentPopover } from '@plannotator/ui/components/CommentPopover';
 import { storage } from '@plannotator/ui/utils/storage';
 import { detectLanguage } from '../utils/detectLanguage';
 import { useAnnotationToolbar } from '../hooks/useAnnotationToolbar';
+import { useConfigValue } from '@plannotator/ui/config';
+import { getEnabledLabels } from './ConventionalLabelPicker';
 import { FileHeader } from './FileHeader';
 import { InlineAnnotation } from './InlineAnnotation';
 import { InlineAIMarker } from './InlineAIMarker';
@@ -239,6 +241,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   }, []);
 
   const toolbar = useAnnotationToolbar({ patch, filePath, isFocused, onLineSelection, onAddAnnotation, onEditAnnotation });
+  const conventionalCommentsEnabled = useConfigValue('conventionalComments');
+  const conventionalLabelsJson = useConfigValue('conventionalLabels');
+  const enabledLabels = useMemo(() => getEnabledLabels(conventionalLabelsJson), [conventionalLabelsJson]);
 
   // Parse patch into FileDiffMetadata for @pierre/diffs FileDiff component
   const fileDiff = useMemo(() => getSingularPatch(patch), [patch]);
@@ -355,6 +360,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           suggestedCode: ann.suggestedCode,
           originalCode: ann.originalCode,
           author: ann.author,
+          conventionalLabel: ann.conventionalLabel,
+          decorations: ann.decorations,
         } as DiffAnnotationMetadata,
       }));
   }, [annotations]);
@@ -561,6 +568,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           onSubmit={toolbar.handleSubmitAnnotation}
           onDismiss={toolbar.handleDismiss}
           onCancel={toolbar.handleCancel}
+          conventionalCommentsEnabled={conventionalCommentsEnabled}
+          conventionalLabel={toolbar.conventionalLabel}
+          onConventionalLabelChange={toolbar.setConventionalLabel}
+          decorations={toolbar.decorations}
+          onDecorationsChange={toolbar.setDecorations}
+          enabledLabels={enabledLabels}
           aiAvailable={aiAvailable}
           onAskAI={onAskAI}
           isAILoading={isAILoading}
