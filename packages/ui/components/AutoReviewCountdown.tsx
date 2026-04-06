@@ -11,11 +11,19 @@ type Phase =
   | 'approval_paused'
   | 'done';
 
+export interface ReviewMeta {
+  models: { name: string; modelId: string; inputTokens: number; outputTokens: number }[];
+  synthesizer?: { modelId: string; inputTokens: number; outputTokens: number };
+  totalDurationMs: number;
+  estimatedCost: number;
+}
+
 interface AutoReviewCountdownProps {
   plan: string;
   onPlanRevised: (newPlan: string, versionInfo: any) => void;
   onAutoApprove: () => void;
   onAnnotationsCleared?: () => void;
+  onReviewComplete?: (meta: ReviewMeta) => void;
   hasAnnotations: boolean;
   disabled?: boolean;
   countdownSeconds?: number;
@@ -26,6 +34,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   onPlanRevised,
   onAutoApprove,
   onAnnotationsCleared,
+  onReviewComplete,
   hasAnnotations,
   disabled = false,
   countdownSeconds = 45,
@@ -37,6 +46,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const consensusRef = useRef<string>('');
+  const structuredRef = useRef<any>(null);
   const planRef = useRef(plan);
 
   // Keep planRef in sync
@@ -125,6 +135,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
               throw new Error(evt.message || 'Deliberation failed');
             } else if (evt.event === 'result') {
               consensusRef.current = typeof evt.result === 'string' ? evt.result : JSON.stringify(evt.structured || evt.result);
+              if (evt.structured) structuredRef.current = evt.structured;
             }
           } catch (e) {
             if (e instanceof SyntaxError) continue; // Skip malformed SSE
@@ -146,6 +157,34 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
     }
   }, []);
 
+  const buildReviewMeta = useCallback((): ReviewMeta | null => {
+    const s = structuredRef.current;
+    if (!s?.models) return null;
+    // Estimate cost using OpenRouter's approximate pricing (per 1M tokens)
+    const pricing: Record<string, { input: number; output: number }> = {
+      'google/gemini-3-flash-preview': { input: 0.05, output: 0.15 },
+      'openai/gpt-4.1-mini': { input: 0.40, output: 1.60 },
+      'x-ai/grok-4.1-fast': { input: 0.15, output: 0.60 },
+      'deepseek/deepseek-chat-v3-0324': { input: 0.14, output: 0.28 },
+      'mistralai/mistral-small-3.1-24b-instruct': { input: 0.10, output: 0.30 },
+    };
+    let totalCost = 0;
+    for (const m of s.models) {
+      const p = pricing[m.modelId] || { input: 0.20, output: 0.60 };
+      totalCost += (m.inputTokens * p.input + m.outputTokens * p.output) / 1_000_000;
+    }
+    if (s.synthesizer) {
+      const p = pricing[s.synthesizer.modelId] || { input: 0.20, output: 0.60 };
+      totalCost += (s.synthesizer.inputTokens * p.input + s.synthesizer.outputTokens * p.output) / 1_000_000;
+    }
+    return {
+      models: s.models,
+      synthesizer: s.synthesizer,
+      totalDurationMs: s.totalDurationMs || 0,
+      estimatedCost: totalCost,
+    };
+  }, []);
+
   const applyFeedback = useCallback(async (feedback: string) => {
     setPhase('applying');
     setStatusText('Applying feedback...');
@@ -165,6 +204,9 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
       const data = await res.json();
       onPlanRevised(data.plan, data.versionInfo);
       onAnnotationsCleared?.();
+
+      const meta = buildReviewMeta();
+      if (meta) onReviewComplete?.(meta);
 
       // Start approval countdown
       setSecondsLeft(countdownSeconds);

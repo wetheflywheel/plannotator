@@ -11,7 +11,8 @@ import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
 import { StickyHeaderLane } from '@plannotator/ui/components/StickyHeaderLane';
 import { AutomationsDropdown } from '@plannotator/ui/components/AutomationsDropdown';
-import { AutoReviewCountdown } from '@plannotator/ui/components/AutoReviewCountdown';
+import { AutoReviewCountdown, type ReviewMeta } from '@plannotator/ui/components/AutoReviewCountdown';
+import { ReviewMetaBanner } from '@plannotator/ui/components/ReviewMetaBanner';
 import { formatPromptHooks, fetchAutomations, type Automation } from '@plannotator/ui/utils/automations';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
@@ -90,6 +91,7 @@ const App: React.FC = () => {
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [showAgentWarning, setShowAgentWarning] = useState(false);
   const [agentWarningMessage, setAgentWarningMessage] = useState('');
+  const [reviewMeta, setReviewMeta] = useState<ReviewMeta | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(() => window.innerWidth >= 768);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [hasNewSettingsHints, setHasNewSettingsHints] = useState(() => hasNewSettings());
@@ -1369,6 +1371,7 @@ const App: React.FC = () => {
                       setAnnotations([]);
                       setGlobalAttachments([]);
                     }}
+                    onReviewComplete={setReviewMeta}
                     hasAnnotations={allAnnotations.length > 0}
                     disabled={isSubmitting || submitted !== null}
                   />
@@ -1504,6 +1507,11 @@ const App: React.FC = () => {
             />
           </div>
         </header>
+
+        {/* Multi-LLM review meta banner */}
+        {reviewMeta && (
+          <ReviewMetaBanner meta={reviewMeta} onDismiss={() => setReviewMeta(null)} />
+        )}
 
         {/* Linked document error banner */}
         {linkedDocHook.error && (
