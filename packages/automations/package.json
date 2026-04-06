@@ -1,0 +1,14 @@
+{
+  "name": "@plannotator/automations",
+  "version": "0.15.5",
+  "private": true,
+  "description": "Bundled automation library for Plannotator",
+  "main": "generated.ts",
+  "types": "generated.ts",
+  "exports": {
+    ".": "./generated.ts"
+  },
+  "files": [
+    "generated.ts"
+  ]
+}

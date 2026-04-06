@@ -11,6 +11,7 @@ import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
 import { StickyHeaderLane } from '@plannotator/ui/components/StickyHeaderLane';
 import { AutomationsDropdown } from '@plannotator/ui/components/AutomationsDropdown';
+import { AutoReviewCountdown } from '@plannotator/ui/components/AutoReviewCountdown';
 import { formatPromptHooks, fetchAutomations, type Automation } from '@plannotator/ui/utils/automations';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
@@ -1356,6 +1357,23 @@ const App: React.FC = () => {
 
             {isApiMode && (!linkedDocHook.isActive || annotateMode) && !archive.archiveMode && (
               <>
+                {!annotateMode && (
+                  <AutoReviewCountdown
+                    plan={markdown}
+                    onPlanRevised={(newPlan, versionInfo) => {
+                      setMarkdown(newPlan);
+                      setPreviousPlan(markdown);
+                    }}
+                    onAutoApprove={handleApprove}
+                    onAnnotationsCleared={() => {
+                      setAnnotations([]);
+                      setGlobalAttachments([]);
+                    }}
+                    hasAnnotations={allAnnotations.length > 0}
+                    disabled={isSubmitting || submitted !== null}
+                  />
+                )}
+
                 {annotateMode ? (
                   // Annotate mode: Close always visible, Send Annotations when annotations exist
                   <>
