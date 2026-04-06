@@ -1,8 +1,20 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { parseMarkdownToBlocks } from '@plannotator/ui/utils/parser';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
 import type { PRContext } from '@plannotator/shared/pr-provider';
+
+/** Renders sanitized HTML with onerror handlers on images to prevent 404 flicker loops. */
+function SafeHtmlBlock({ html, tag: Tag = 'div', ...props }: { html: string; tag?: 'div' | 'span'; [key: string]: any }) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    ref.current.querySelectorAll('img').forEach((img) => {
+      img.onerror = () => { img.style.display = 'none'; img.onerror = null; };
+    });
+  }, [html]);
+  return <Tag ref={ref as any} dangerouslySetInnerHTML={{ __html: html }} {...props} />;
+}
 import type { PRMetadata } from '@plannotator/shared/pr-provider';
 
 interface PRSummaryTabProps {
@@ -35,7 +47,7 @@ function sanitizeHtml(html: string): string {
  */
 function renderContent(content: string): React.ReactNode {
   if (containsHtml(content)) {
-    return <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(content) }} />;
+    return <SafeHtmlBlock html={sanitizeHtml(content)} tag="span" />;
   }
   return renderInlineMarkdown(content);
 }
@@ -86,7 +98,7 @@ export function MarkdownBody({ markdown }: { markdown: string }) {
             if (!block.content) return null;
             // If the entire paragraph is HTML, sanitize and render
             if (containsHtml(block.content)) {
-              return <div key={block.id} dangerouslySetInnerHTML={{ __html: sanitizeHtml(block.content) }} />;
+              return <SafeHtmlBlock key={block.id} html={sanitizeHtml(block.content)} />;
             }
             return <p key={block.id}>{renderInlineMarkdown(block.content)}</p>;
         }

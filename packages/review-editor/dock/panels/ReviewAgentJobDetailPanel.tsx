@@ -3,6 +3,7 @@ import type { IDockviewPanelProps } from 'dockview-react';
 import type { AgentJobInfo, CodeAnnotation } from '@plannotator/ui/types';
 import { isTerminalStatus } from '@plannotator/shared/agent-jobs';
 import { useReviewState } from '../ReviewStateContext';
+import { useJobLogs } from '../JobLogsContext';
 import { CopyButton } from '../../components/CopyButton';
 import { LiveLogViewer } from '../../components/LiveLogViewer';
 import { ScrollFade } from '../../components/ScrollFade';
@@ -29,13 +30,16 @@ export const ReviewAgentJobDetailPanel: React.FC<IDockviewPanelProps> = (props) 
   const { fullCommand, userMessage, systemPrompt } = useMemo(() => {
     const cmd = job?.command ?? [];
     const full = cmd.join(' ');
-    const prompt = cmd.length > 0 ? cmd[cmd.length - 1] : '';
+
+    // Use job.prompt if available (stored explicitly for all providers),
+    // fallback to parsing last command arg (legacy Codex behavior)
+    const promptText = job?.prompt || (cmd.length > 0 ? cmd[cmd.length - 1] : '');
     const sep = '\n\n---\n\n';
-    const i = prompt.indexOf(sep);
+    const i = promptText.indexOf(sep);
     return {
       fullCommand: full,
-      userMessage: i !== -1 ? prompt.substring(i + sep.length) : prompt,
-      systemPrompt: i !== -1 ? prompt.substring(0, i) : '',
+      userMessage: i !== -1 ? promptText.substring(i + sep.length) : promptText,
+      systemPrompt: i !== -1 ? promptText.substring(0, i) : '',
     };
   }, [job]);
 
@@ -80,7 +84,8 @@ export const ReviewAgentJobDetailPanel: React.FC<IDockviewPanelProps> = (props) 
     [activeAnnotations, state.prMetadata]
   );
 
-  const logContent = state.jobLogs.get(jobId) ?? '';
+  const { jobLogs } = useJobLogs();
+  const logContent = jobLogs.get(jobId) ?? '';
 
   if (!job) {
     return <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Job not found</div>;

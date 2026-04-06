@@ -61,12 +61,21 @@ export interface AgentJobHandlerOptions {
    * Return an object with the command to spawn (and optional output path for result ingestion).
    * Return null to reject or fall through to frontend-supplied command.
    */
-  buildCommand?: (provider: string) => Promise<{ command: string[]; outputPath?: string; label?: string } | null>;
+  buildCommand?: (provider: string) => Promise<{
+    command: string[];
+    outputPath?: string;
+    captureStdout?: boolean;
+    stdinPrompt?: string;
+    cwd?: string;
+    label?: string;
+    /** The full prompt text for display in the detail panel. */
+    prompt?: string;
+  } | null>;
   /**
    * Called after a job process exits with exit code 0.
    * Use for result ingestion (e.g., reading an output file and pushing annotations).
    */
-  onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string }) => void | Promise<void>;
+  onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string; stdout?: string; cwd?: string }) => void | Promise<void>;
 }
 
 export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJobHandler {
@@ -110,6 +119,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     command: string[],
     label: string,
     outputPath?: string,
+    spawnOptions?: { captureStdout?: boolean; stdinPrompt?: string; cwd?: string; prompt?: string },
   ): AgentJobInfo {
     const id = crypto.randomUUID();
     const source = jobSource(id);
@@ -128,9 +138,15 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     let proc: ReturnType<typeof Bun.spawn> | null = null;
 
     try {
+      const spawnCwd = spawnOptions?.cwd ?? getCwd();
+      const captureStdout = spawnOptions?.captureStdout ?? false;
+
+      const hasStdinPrompt = !!spawnOptions?.stdinPrompt;
+
       proc = Bun.spawn(command, {
-        cwd: getCwd(),
-        stdout: "ignore",
+        cwd: spawnCwd,
+        stdin: hasStdinPrompt ? "pipe" : undefined,
+        stdout: captureStdout ? "pipe" : "ignore",
         stderr: "pipe",
         env: {
           ...process.env,
@@ -139,9 +155,18 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
         },
       });
 
+      // Write prompt to stdin and close (for providers that read prompt from stdin)
+      if (hasStdinPrompt && proc.stdin) {
+        proc.stdin.write(spawnOptions!.stdinPrompt!);
+        proc.stdin.end();
+      }
+
       info.status = "running";
+      info.cwd = spawnCwd;
+      if (spawnOptions?.prompt) info.prompt = spawnOptions.prompt;
       jobs.set(id, { info, proc });
       if (outputPath) jobOutputPaths.set(id, outputPath);
+      if (spawnOptions?.cwd) jobOutputPaths.set(`${id}:cwd`, spawnOptions.cwd);
       broadcast({ type: "job:started", job: { ...info } });
 
       // Drain stderr: capture tail for error reporting + broadcast live log deltas
@@ -180,8 +205,37 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
         })();
       }
 
+      // Drain stdout when capturing (for providers that return results on stdout)
+      let stdoutBuf = "";
+      const stdoutDone = (captureStdout && proc.stdout && typeof proc.stdout !== "number")
+        ? (async () => {
+            try {
+              const reader = proc!.stdout as ReadableStream;
+              for await (const chunk of reader) {
+                const text = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+                stdoutBuf += text;
+
+                // Forward JSONL lines as log events (skip result events)
+                const lines = text.split('\n');
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  try {
+                    const event = JSON.parse(line);
+                    if (event.type === 'result') continue; // handled in onJobComplete
+                  } catch { /* not JSON — forward as raw log */ }
+                  broadcast({ type: "job:log", jobId: id, delta: line + '\n' });
+                }
+              }
+            } catch {
+              // Stream closed
+            }
+          })()
+        : Promise.resolve();
+
       // Monitor process exit
       proc.exited.then(async (exitCode) => {
+        // Ensure stdout is fully drained before reading results
+        await stdoutDone;
         const entry = jobs.get(id);
         if (!entry || isTerminalStatus(entry.info.status)) return;
 
@@ -195,14 +249,20 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
 
         // Ingest results before broadcasting completion so annotations arrive first
         const outputPath = jobOutputPaths.get(id);
+        const jobCwd = jobOutputPaths.get(`${id}:cwd`);
         if (exitCode === 0 && options.onJobComplete) {
           try {
-            await options.onJobComplete(entry.info, { outputPath });
+            await options.onJobComplete(entry.info, {
+              outputPath,
+              stdout: captureStdout ? stdoutBuf : undefined,
+              cwd: jobCwd,
+            });
           } catch {
             // Result ingestion failure shouldn't prevent job completion broadcast
           }
         }
         jobOutputPaths.delete(id);
+        jobOutputPaths.delete(`${id}:cwd`);
 
         broadcast({ type: "job:completed", job: { ...entry.info } });
       }).catch(() => {
@@ -347,11 +407,19 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
           }
 
           // For non-shell providers, try server-side command building
+          let captureStdout = false;
+          let stdinPrompt: string | undefined;
+          let spawnCwd: string | undefined;
+          let promptText: string | undefined;
           if (options.buildCommand && provider !== "shell") {
             const built = await options.buildCommand(provider);
             if (built) {
               command = built.command;
               outputPath = built.outputPath;
+              captureStdout = built.captureStdout ?? false;
+              stdinPrompt = built.stdinPrompt;
+              spawnCwd = built.cwd;
+              promptText = built.prompt;
               if (built.label) label = built.label;
             }
           }
@@ -363,7 +431,12 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             );
           }
 
-          const job = spawnJob(provider, command, label, outputPath);
+          const job = spawnJob(provider, command, label, outputPath, {
+            captureStdout,
+            stdinPrompt,
+            cwd: spawnCwd,
+            prompt: promptText,
+          });
           return Response.json({ job }, { status: 201 });
         } catch {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });

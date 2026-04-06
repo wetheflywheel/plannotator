@@ -38,6 +38,7 @@ import { FileTree } from './components/FileTree';
 import { DEMO_DIFF } from './demoData';
 import { exportReviewFeedback } from './utils/exportFeedback';
 import { ReviewStateProvider, type ReviewState } from './dock/ReviewStateContext';
+import { JobLogsProvider } from './dock/JobLogsContext';
 import { reviewPanelComponents } from './dock/reviewPanelComponents';
 import { ReviewDockTabRenderer } from './dock/ReviewDockTabRenderer';
 import { usePRContext } from './hooks/usePRContext';
@@ -966,7 +967,6 @@ const ReviewApp: React.FC = () => {
     onClickAIMarker: handleClickAIMarker,
     aiHistoryForSelection,
     agentJobs: agentJobs.jobs,
-    jobLogs: agentJobs.jobLogs,
     prMetadata,
     prContext,
     isPRContextLoading,
@@ -986,9 +986,12 @@ const ReviewApp: React.FC = () => {
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch,
     aiAvailable, aiChat.messages, aiChat.isCreatingSession, aiChat.isStreaming,
     handleAskAI, handleViewAIResponse, handleClickAIMarker,
-    aiHistoryForSelection, agentJobs.jobs, agentJobs.jobLogs, prMetadata, prContext,
+    aiHistoryForSelection, agentJobs.jobs, prMetadata, prContext,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
   ]);
+
+  // Separate context for high-frequency job logs — prevents re-rendering all panels on every SSE event
+  const jobLogsValue = useMemo(() => ({ jobLogs: agentJobs.jobLogs }), [agentJobs.jobLogs]);
 
   // Copy raw diff to clipboard
   const handleCopyDiff = useCallback(async () => {
@@ -1303,6 +1306,7 @@ const ReviewApp: React.FC = () => {
   return (
     <ThemeProvider defaultTheme="dark">
       <ReviewStateProvider value={reviewStateValue}>
+      <JobLogsProvider value={jobLogsValue}>
       <div className="h-screen flex flex-col bg-background overflow-hidden">
         {/* Header */}
         <header className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
@@ -1929,6 +1933,7 @@ const ReviewApp: React.FC = () => {
           </div>
         )}
       </div>
+    </JobLogsProvider>
     </ReviewStateProvider>
     </ThemeProvider>
   );

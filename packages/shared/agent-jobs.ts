@@ -37,6 +37,8 @@ export interface AgentJobInfo {
   command: string[];
   /** Working directory where the process was spawned. */
   cwd?: string;
+  /** The review prompt text (system + user message). Stored separately from command for providers that use stdin. */
+  prompt?: string;
   /** Review summary set by the agent on completion. */
   summary?: {
     correctness: string;

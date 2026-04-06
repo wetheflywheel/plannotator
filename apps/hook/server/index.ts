@@ -69,7 +69,8 @@ import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getCliInstallUrl, getMRLa
 import { writeRemoteShareLink } from "@plannotator/server/share-url";
 import { resolveMarkdownFile, hasMarkdownFiles } from "@plannotator/shared/resolve-file";
 import { FILE_BROWSER_EXCLUDED } from "@plannotator/shared/reference-common";
-import { statSync } from "fs";
+import { statSync, rmSync } from "fs";
+import { parseRemoteUrl } from "@plannotator/shared/repo";
 import { registerSession, unregisterSession, listSessions } from "@plannotator/server/sessions";
 import { openBrowser } from "@plannotator/server/browser";
 import { detectProjectName } from "@plannotator/server/project";
@@ -245,62 +246,107 @@ if (args[0] === "sessions") {
       process.exit(1);
     }
 
-    // --local: create a temporary worktree with the PR head for local file access
+    // --local: create a local checkout with the PR head for full file access
     if (useLocal && prMetadata) {
       try {
         const repoDir = process.cwd();
-        let fetchRefStr: string;
-        let identifier: string;
-
-        if (prMetadata.platform === "github") {
-          fetchRefStr = `refs/pull/${prMetadata.number}/head`;
-          identifier = `${prMetadata.owner}-${prMetadata.repo}-${prMetadata.number}`;
-        } else {
-          fetchRefStr = `refs/merge-requests/${prMetadata.iid}/head`;
-          identifier = `${prMetadata.projectPath.replace(/\//g, "-")}-${prMetadata.iid}`;
-        }
-
-        console.error("Fetching PR branch and creating local worktree...");
-        await fetchRef(gitRuntime, fetchRefStr, { cwd: repoDir });
-
-        // Ensure base SHA is available (needed for branch diff)
-        const baseAvailable = await ensureObjectAvailable(gitRuntime, prMetadata.baseSha, { cwd: repoDir });
-        if (!baseAvailable) {
-          console.error(`Warning: base SHA ${prMetadata.baseSha.slice(0, 8)} not available locally — branch diff may be incomplete`);
-        }
-
+        const identifier = prMetadata.platform === "github"
+          ? `${prMetadata.owner}-${prMetadata.repo}-${prMetadata.number}`
+          : `${prMetadata.projectPath.replace(/\//g, "-")}-${prMetadata.iid}`;
         const suffix = Math.random().toString(36).slice(2, 8);
-        const worktreePath = path.join(tmpdir(), `plannotator-pr-${identifier}-${suffix}`);
+        const localPath = path.join(tmpdir(), `plannotator-pr-${identifier}-${suffix}`);
+        const fetchRefStr = prMetadata.platform === "github"
+          ? `refs/pull/${prMetadata.number}/head`
+          : `refs/merge-requests/${prMetadata.iid}/head`;
 
-        const { worktreePath: createdPath } = await createWorktree(gitRuntime, {
-          ref: "FETCH_HEAD",
-          path: worktreePath,
-          detach: true,
-          cwd: repoDir,
-        });
+        // Detect same-repo vs cross-repo
+        let isSameRepo = false;
+        try {
+          const remoteResult = await gitRuntime.runGit(["remote", "get-url", "origin"]);
+          if (remoteResult.exitCode === 0) {
+            const currentRepo = parseRemoteUrl(remoteResult.stdout.trim());
+            const prRepo = prMetadata.platform === "github"
+              ? `${prMetadata.owner}/${prMetadata.repo}`
+              : prMetadata.projectPath;
+            isSameRepo = !!currentRepo && currentRepo.toLowerCase() === prRepo.toLowerCase();
+          }
+        } catch { /* not in a git repo — cross-repo path */ }
 
-        // Build git context from the worktree
-        gitContext = await getVcsContext(createdPath);
-        // Override default branch with the PR's actual base branch
+        if (isSameRepo) {
+          // ── Same-repo: fast worktree path ──
+          console.error("Fetching PR branch and creating local worktree...");
+          await fetchRef(gitRuntime, fetchRefStr, { cwd: repoDir });
+          await ensureObjectAvailable(gitRuntime, prMetadata.baseSha, { cwd: repoDir });
+
+          await createWorktree(gitRuntime, {
+            ref: "FETCH_HEAD",
+            path: localPath,
+            detach: true,
+            cwd: repoDir,
+          });
+
+          worktreeCleanup = () => removeWorktree(gitRuntime, localPath, { force: true, cwd: repoDir });
+          process.on("exit", () => {
+            try { Bun.spawnSync(["git", "worktree", "remove", "--force", localPath]); } catch {}
+          });
+        } else {
+          // ── Cross-repo: shallow clone + fetch PR head ──
+          const prRepo = prMetadata.platform === "github"
+            ? `${prMetadata.owner}/${prMetadata.repo}`
+            : prMetadata.projectPath;
+          const cli = prMetadata.platform === "github" ? "gh" : "glab";
+          const host = prMetadata.host;
+          const hostnameArgs = (host === "github.com" || host === "gitlab.com") ? [] : ["--hostname", host];
+
+          // Step 1: Fast skeleton clone (no checkout, depth 1 — minimal data transfer)
+          console.error(`Cloning ${prRepo} (shallow)...`);
+          const cloneResult = Bun.spawnSync(
+            [cli, "repo", "clone", prRepo, localPath, ...hostnameArgs, "--", "--depth=1", "--no-checkout"],
+            { stderr: "pipe" },
+          );
+          if (cloneResult.exitCode !== 0) {
+            throw new Error(`${cli} repo clone failed: ${new TextDecoder().decode(cloneResult.stderr).trim()}`);
+          }
+
+          // Step 2: Fetch only the PR head ref (targeted, much faster than full fetch)
+          console.error("Fetching PR branch...");
+          const fetchResult = Bun.spawnSync(
+            ["git", "fetch", "--depth=50", "origin", fetchRefStr],
+            { cwd: localPath, stderr: "pipe" },
+          );
+          if (fetchResult.exitCode !== 0) throw new Error(`Failed to fetch PR head ref: ${new TextDecoder().decode(fetchResult.stderr).trim()}`);
+
+          // Step 3: Checkout and ensure base is available
+          Bun.spawnSync(["git", "checkout", "FETCH_HEAD"], { cwd: localPath, stderr: "pipe" });
+
+          // Fetch the exact base SHA (the merge-base GitHub computed for this PR)
+          // Using baseSha instead of baseBranch avoids diff explosion from branch divergence
+          Bun.spawnSync(["git", "fetch", "--depth=50", "origin", prMetadata.baseSha], { cwd: localPath, stderr: "pipe" });
+
+          worktreeCleanup = () => { try { rmSync(localPath, { recursive: true, force: true }); } catch {} };
+          process.on("exit", () => {
+            try { Bun.spawnSync(["rm", "-rf", localPath]); } catch {}
+          });
+        }
+
+        // ── Common path: build context + diff ──
+        gitContext = await getVcsContext(localPath);
         gitContext.defaultBranch = prMetadata.baseBranch;
-
-        // Compute diff locally (more accurate than platform diff)
         initialDiffType = "branch";
-        const localDiff = await runVcsDiff("branch", prMetadata.baseBranch, createdPath);
-        rawPatch = localDiff.patch;
-        gitRef = localDiff.label || gitRef;
 
-        // Register cleanup
-        worktreeCleanup = () => removeWorktree(gitRuntime, createdPath, { force: true, cwd: repoDir });
-        process.on("exit", () => {
-          try { Bun.spawnSync(["git", "worktree", "remove", "--force", createdPath]); } catch {}
-        });
+        if (isSameRepo) {
+          // Same-repo: compute diff locally (full history available, accurate)
+          const localDiff = await runVcsDiff("branch", prMetadata.baseBranch, localPath);
+          rawPatch = localDiff.patch;
+          gitRef = localDiff.label || gitRef;
+        }
+        // Cross-repo: keep the rawPatch from gh pr diff (already set above).
+        // Local git diff in shallow clones produces malformed hunks that break the diff viewer.
 
-        console.error(`Local worktree created at ${createdPath}`);
+        console.error(`Local checkout ready at ${localPath}`);
       } catch (err) {
-        console.error(`Warning: --local worktree creation failed, falling back to remote diff`);
+        console.error(`Warning: --local failed, falling back to remote diff`);
         console.error(err instanceof Error ? err.message : String(err));
-        // gitContext remains undefined = pure PR mode fallback
         worktreeCleanup = undefined;
       }
     }

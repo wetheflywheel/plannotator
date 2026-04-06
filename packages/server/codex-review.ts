@@ -346,11 +346,12 @@ function toRelativePath(absolutePath: string, cwd?: string): string {
   return absolutePath.startsWith(prefix) ? absolutePath.slice(prefix.length) : absolutePath;
 }
 
-/** Transform Codex findings (native schema) into the external annotation format. */
-export function transformCodexFindings(
+/** Transform review findings (provider-agnostic) into the external annotation format. */
+export function transformReviewFindings(
   findings: CodexFinding[],
   source: string,
   cwd?: string,
+  author?: string,
 ): ReviewAnnotationInput[] {
   const annotations = findings
     .filter((f) =>
@@ -367,7 +368,7 @@ export function transformCodexFindings(
       side: "new",
       scope: "line",
       text: `${f.title}\n\n${f.body}`.trim(),
-      author: "Codex",
+      author: author ?? "Review Agent",
     }));
 
   debugLog("TRANSFORM_FINDINGS", {

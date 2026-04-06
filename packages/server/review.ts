@@ -24,8 +24,13 @@ import {
   buildCodexCommand,
   generateOutputPath,
   parseCodexOutput,
-  transformCodexFindings,
+  transformReviewFindings,
 } from "./codex-review";
+import {
+  CLAUDE_REVIEW_PROMPT,
+  buildClaudeCommand,
+  parseClaudeStreamOutput,
+} from "./claude-review";
 import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { type PRMetadata, type PRReviewFileComment, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, getPRUser, prRefFromMetadata, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
 import { createAIEndpoints, ProviderRegistry, SessionManager, createProvider, type AIEndpoints, type PiSDKConfig } from "@plannotator/ai";
@@ -127,28 +132,34 @@ export async function startReviewServer(
     },
 
     async buildCommand(provider) {
-      if (provider !== "codex") return null;
-
       const cwd = resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
-      const outputPath = generateOutputPath();
-
-      // Build the two-layer prompt: system prompt + dynamic user message
       const userMessage = buildCodexReviewUserMessage(currentPatch, currentDiffType, gitContext, prMetadata);
-      const prompt = CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage;
 
-      const command = await buildCodexCommand({
-        cwd,
-        outputPath,
-        prompt,
-      });
+      if (provider === "codex") {
+        const outputPath = generateOutputPath();
+        const prompt = CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage;
+        const command = await buildCodexCommand({ cwd, outputPath, prompt });
+        return { command, outputPath, prompt, label: "Codex Review" };
+      }
 
-      return { command, outputPath, label: "Codex Review" };
+      if (provider === "claude") {
+        const prompt = CLAUDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
+        const { command, stdinPrompt } = buildClaudeCommand(prompt);
+        return { command, stdinPrompt, prompt, cwd, label: "Claude Code Review", captureStdout: true };
+      }
+
+      return null;
     },
 
     async onJobComplete(job, meta) {
-      if (!meta.outputPath || job.provider !== "codex") return;
+      let output: Awaited<ReturnType<typeof parseCodexOutput>> = null;
 
-      const output = await parseCodexOutput(meta.outputPath);
+      if (job.provider === "codex" && meta.outputPath) {
+        output = await parseCodexOutput(meta.outputPath);
+      } else if (job.provider === "claude" && meta.stdout) {
+        output = parseClaudeStreamOutput(meta.stdout);
+      }
+
       if (!output) return;
 
       // Set summary on the job — flows through job:completed broadcast
@@ -160,11 +171,12 @@ export async function startReviewServer(
 
       if (output.findings.length > 0) {
         const cwd = resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
-        const annotations = transformCodexFindings(output.findings, job.source, cwd);
+        const authorName = job.provider === "codex" ? "Codex" : job.provider === "claude" ? "Claude Code" : "Review Agent";
+        const annotations = transformReviewFindings(output.findings, job.source, cwd, authorName);
         const result = externalAnnotations.addAnnotations({ annotations });
 
         if ("error" in result) {
-          console.error("[codex-review] addAnnotations error:", result.error);
+          console.error(`[${job.provider}-review] addAnnotations error:`, result.error);
         }
       }
     },
