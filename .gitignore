@@ -54,3 +54,4 @@ packages/automations/generated.ts
 .session-handoff.md
 .session-metrics.jsonl
 *.bun-build
+.gstack/
