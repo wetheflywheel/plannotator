@@ -266,17 +266,20 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
               className="transition-[stroke-dashoffset] duration-1000 ease-linear"
             />
           </svg>
-          <span className="whitespace-nowrap">
-            {phase === 'countdown' ? `Review in ${secondsLeft}s` : `Approve in ${secondsLeft}s`}
+          <span className="whitespace-nowrap" title={phase === 'countdown' ? 'Will run multi-LLM review: 4 models deliberate on your plan, then auto-revise it' : 'Will auto-approve the revised plan'}>
+            {phase === 'countdown' ? `Multi-LLM review in ${secondsLeft}s` : `Auto-approve in ${secondsLeft}s`}
           </span>
-          <button onClick={handlePause} className="p-0.5 rounded hover:bg-primary/20" title="Pause">
+          <button onClick={handlePause} className="p-0.5 rounded hover:bg-primary/20" title="Pause countdown">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16"><rect x="4" y="3" width="3" height="10" rx="0.5" /><rect x="9" y="3" width="3" height="10" rx="0.5" /></svg>
           </button>
           {phase === 'countdown' && (
-            <button onClick={handleRunNow} className="p-0.5 rounded hover:bg-primary/20" title="Run now">
+            <button onClick={handleRunNow} className="p-0.5 rounded hover:bg-primary/20" title="Run multi-LLM review now">
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3l8 5-8 5V3z" /></svg>
             </button>
           )}
+          <button onClick={handleStop} className="p-0.5 rounded hover:bg-muted text-muted-foreground" title="Cancel — stop auto-review">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2.5"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+          </button>
         </>
       )}
 
@@ -284,16 +287,19 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
       {(phase === 'paused' || phase === 'approval_paused') && (
         <>
           <span className="text-muted-foreground whitespace-nowrap">
-            {phase === 'paused' ? '🧠 Paused' : '✓ Approval paused'}
+            {phase === 'paused' ? 'Multi-LLM review paused' : 'Auto-approve paused'}
           </span>
-          <button onClick={handleResume} className="p-0.5 rounded hover:bg-primary/20" title="Resume">
+          <button onClick={handleResume} className="p-0.5 rounded hover:bg-primary/20" title="Resume countdown">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3l8 5-8 5V3z" /></svg>
           </button>
           {phase === 'paused' && (
-            <button onClick={handleRunNow} className="p-0.5 rounded hover:bg-primary/20 text-[10px]" title="Run now">
+            <button onClick={handleRunNow} className="p-0.5 rounded hover:bg-primary/20 text-[10px]" title="Run multi-LLM review now">
               Now
             </button>
           )}
+          <button onClick={handleStop} className="p-0.5 rounded hover:bg-muted text-muted-foreground" title="Cancel — stop auto-review">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2.5"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+          </button>
         </>
       )}
 
