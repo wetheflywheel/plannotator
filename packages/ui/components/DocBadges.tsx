@@ -50,7 +50,10 @@ export const DocBadges: React.FC<DocBadgesProps> = ({
 
   return (
     <div className={outerClass}>
-      {repoInfo && !linkedDocInfo && (
+      {/* Row layout (sticky lane) omits repo/branch to keep the bar compact —
+          they'd otherwise push the container wide enough to visually extend
+          under the action buttons. Plan-diff badge still renders below. */}
+      {repoInfo && !linkedDocInfo && !isRow && (
         <div className="flex items-center gap-1.5">
           <span
             className="px-1.5 py-0.5 bg-muted/50 rounded truncate max-w-[140px]"
