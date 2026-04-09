@@ -13,6 +13,6 @@ describe("external annotations SSE", () => {
     );
 
     expect(disableIdleTimeout).toHaveBeenCalledTimes(1);
-    expect(res?.headers.get("content-type")).toBe("text/event-stream");
+    expect(res?.headers.get("content-type")).toBe("text/event-stream; charset=utf-8");
   });
 });

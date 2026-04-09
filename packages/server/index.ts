@@ -533,7 +533,7 @@ export async function startPlannotatorServer(
 
               return new Response(stream, {
                 headers: {
-                  "Content-Type": "text/event-stream",
+                  "Content-Type": "text/event-stream; charset=utf-8",
                   "Cache-Control": "no-cache",
                   "Connection": "keep-alive",
                 },
@@ -813,7 +813,7 @@ INSTRUCTIONS:
 
           // Serve embedded HTML for all other routes (SPA)
           return new Response(htmlContent, {
-            headers: { "Content-Type": "text/html" },
+            headers: { "Content-Type": "text/html; charset=utf-8" },
           });
         },
 

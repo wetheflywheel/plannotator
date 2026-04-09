@@ -262,7 +262,7 @@ export async function startAnnotateServer(
 
           // Serve embedded HTML for all other routes (SPA)
           return new Response(htmlContent, {
-            headers: { "Content-Type": "text/html" },
+            headers: { "Content-Type": "text/html; charset=utf-8" },
           });
         },
 

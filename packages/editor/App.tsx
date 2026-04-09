@@ -11,8 +11,10 @@ import { ThemeProvider } from '@plannotator/ui/components/ThemeProvider';
 import { AnnotationToolstrip } from '@plannotator/ui/components/AnnotationToolstrip';
 import { StickyHeaderLane } from '@plannotator/ui/components/StickyHeaderLane';
 import { AutomationsDropdown } from '@plannotator/ui/components/AutomationsDropdown';
-import { AutoReviewCountdown, type ReviewMeta } from '@plannotator/ui/components/AutoReviewCountdown';
+import { AutoReviewCountdown } from '@plannotator/ui/components/AutoReviewCountdown';
 import { ReviewMetaBanner } from '@plannotator/ui/components/ReviewMetaBanner';
+import { AutoReviewConsole } from '@plannotator/ui/components/AutoReviewConsole';
+import { AutoReviewProvider, useAutoReview } from '@plannotator/ui/contexts/AutoReviewContext';
 import { formatPromptHooks, fetchAutomations, type Automation } from '@plannotator/ui/utils/automations';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
@@ -78,7 +80,10 @@ type NoteAutoSaveResults = {
   octarine?: boolean;
 };
 
-const App: React.FC = () => {
+const AppInner: React.FC = () => {
+  // Auto-review shared state (pill + console drawer + banner all read from here).
+  // Living inside the provider means the drawer, pill, and banner can't drift.
+  const { meta: reviewMeta, isDrawerOpen: isConsoleOpen, actions: autoReviewActions } = useAutoReview();
   const [markdown, setMarkdown] = useState(DEMO_PLAN_CONTENT);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -91,7 +96,6 @@ const App: React.FC = () => {
   const [showExitWarning, setShowExitWarning] = useState(false);
   const [showAgentWarning, setShowAgentWarning] = useState(false);
   const [agentWarningMessage, setAgentWarningMessage] = useState('');
-  const [reviewMeta, setReviewMeta] = useState<ReviewMeta | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(() => window.innerWidth >= 768);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [hasNewSettingsHints, setHasNewSettingsHints] = useState(() => hasNewSettings());
@@ -1371,7 +1375,6 @@ const App: React.FC = () => {
                       setAnnotations([]);
                       setGlobalAttachments([]);
                     }}
-                    onReviewComplete={setReviewMeta}
                     hasAnnotations={allAnnotations.length > 0}
                     disabled={isSubmitting || submitted !== null}
                   />
@@ -1508,9 +1511,13 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Multi-LLM review meta banner */}
-        {reviewMeta && (
-          <ReviewMetaBanner meta={reviewMeta} onDismiss={() => setReviewMeta(null)} />
+        {/* Multi-LLM console drawer — auto-opens on deliberation start, sticky below header */}
+        <AutoReviewConsole onOpenDiff={() => setIsPlanDiffActive(true)} />
+
+        {/* Multi-LLM review meta banner — hidden while the console drawer is open
+            because the drawer shows a superset of the banner's info (Models section). */}
+        {reviewMeta && !isConsoleOpen && (
+          <ReviewMetaBanner meta={reviewMeta} onDismiss={() => autoReviewActions.setMeta(null)} />
         )}
 
         {/* Linked document error banner */}
@@ -1923,5 +1930,17 @@ const App: React.FC = () => {
     </ThemeProvider>
   );
 };
+
+/**
+ * Top-level export. Wraps `AppInner` in `AutoReviewProvider` so that the pill,
+ * console drawer, and meta banner can all share auto-review state via
+ * `useAutoReview()` without every caller (hook/portal entry points) needing to
+ * mount the provider themselves.
+ */
+const App: React.FC = () => (
+  <AutoReviewProvider>
+    <AppInner />
+  </AutoReviewProvider>
+);
 
 export default App;

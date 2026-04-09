@@ -1,32 +1,56 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
+import {
+  useAutoReview,
+  type AutoReviewPhase,
+  type ReviewMeta,
+} from '../contexts/AutoReviewContext';
+import { computePlanDiff } from '../utils/planDiffEngine';
 
-type Phase =
-  | 'idle'
-  | 'countdown'
-  | 'paused'
-  | 'deliberating'
-  | 'applying'
-  | 'error'
-  | 'approval_countdown'
-  | 'approval_paused'
-  | 'done';
-
-export interface ReviewMeta {
-  models: { name: string; modelId: string; inputTokens: number; outputTokens: number }[];
-  synthesizer?: { modelId: string; inputTokens: number; outputTokens: number };
-  totalDurationMs: number;
-  estimatedCost: number;
-}
+// Re-export ReviewMeta so existing callers (`@plannotator/ui/components/AutoReviewCountdown`)
+// keep working without touching their imports.
+export type { ReviewMeta } from '../contexts/AutoReviewContext';
 
 interface AutoReviewCountdownProps {
   plan: string;
   onPlanRevised: (newPlan: string, versionInfo: any) => void;
   onAutoApprove: () => void;
   onAnnotationsCleared?: () => void;
+  /** @deprecated — meta now lives in AutoReviewContext. Kept for backwards compatibility. */
   onReviewComplete?: (meta: ReviewMeta) => void;
   hasAnnotations: boolean;
   disabled?: boolean;
   countdownSeconds?: number;
+}
+
+// OpenRouter pricing (USD per 1M tokens). Keep in sync with server/apply-review.
+const PRICING: Record<string, { input: number; output: number }> = {
+  'google/gemini-3-flash-preview': { input: 0.05, output: 0.15 },
+  'openai/gpt-4.1-mini': { input: 0.40, output: 1.60 },
+  'x-ai/grok-4.1-fast': { input: 0.15, output: 0.60 },
+  'deepseek/deepseek-chat-v3-0324': { input: 0.14, output: 0.28 },
+  'mistralai/mistral-small-3.1-24b-instruct': { input: 0.10, output: 0.30 },
+};
+
+function estimateCost(structured: any): ReviewMeta | null {
+  if (!structured?.models) return null;
+  let totalCost = 0;
+  for (const m of structured.models) {
+    const p = PRICING[m.modelId] || { input: 0.20, output: 0.60 };
+    totalCost += (m.inputTokens * p.input + m.outputTokens * p.output) / 1_000_000;
+  }
+  if (structured.synthesizer) {
+    const p = PRICING[structured.synthesizer.modelId] || { input: 0.20, output: 0.60 };
+    totalCost +=
+      (structured.synthesizer.inputTokens * p.input +
+        structured.synthesizer.outputTokens * p.output) /
+      1_000_000;
+  }
+  return {
+    models: structured.models,
+    synthesizer: structured.synthesizer,
+    totalDurationMs: structured.totalDurationMs || 0,
+    estimatedCost: totalCost,
+  };
 }
 
 export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
@@ -39,63 +63,93 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   disabled = false,
   countdownSeconds = 45,
 }) => {
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [secondsLeft, setSecondsLeft] = useState(countdownSeconds);
-  const [statusText, setStatusText] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
+  const { phase, secondsLeft, errorMsg, isDrawerOpen, actions } = useAutoReview();
+
+  // Refs kept local — they're non-render state tied to the fetch lifecycle.
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const consensusRef = useRef<string>('');
   const structuredRef = useRef<any>(null);
   const planRef = useRef(plan);
+  // Snapshot of the plan at the moment deliberation started, used as the
+  // "old" side of the diff stats after /api/apply-review returns a new plan.
+  const planBeforeApplyRef = useRef<string>('');
 
-  // Keep planRef in sync
-  useEffect(() => { planRef.current = plan; }, [plan]);
+  // Keep planRef in sync with the latest plan prop.
+  useEffect(() => {
+    planRef.current = plan;
+  }, [plan]);
 
-  // Auto-start countdown on mount
+  // Auto-start the countdown on mount (unless disabled).
   useEffect(() => {
     if (!disabled) {
-      setPhase('countdown');
-      setSecondsLeft(countdownSeconds);
+      actions.beginCountdown('countdown', countdownSeconds);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Intentionally run once on mount — the pill lives for the session and
+    // doesn't restart if the parent re-renders with new props.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Pause countdown if user adds annotations
+  // Pause the pre-deliberation countdown if the user adds annotations.
   useEffect(() => {
     if (hasAnnotations && phase === 'countdown') {
-      setPhase('paused');
+      actions.setPhase('paused');
     }
-  }, [hasAnnotations, phase]);
+  }, [hasAnnotations, phase, actions]);
 
-  // Countdown timer
+  // Tick loop — only runs while a countdown phase is active.
   useEffect(() => {
     if (phase !== 'countdown' && phase !== 'approval_countdown') {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       return;
     }
     timerRef.current = setInterval(() => {
-      setSecondsLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current!);
-          timerRef.current = null;
-          if (phase === 'countdown') startDeliberation();
-          if (phase === 'approval_countdown') {
-            setPhase('done');
-            onAutoApprove();
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
+      actions.tick();
     }, 1000);
-    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [phase, actions]);
+
+  // Transition effect — fires when a countdown hits 0.
+  useEffect(() => {
+    if (secondsLeft > 0) return;
+    if (phase === 'countdown') {
+      startDeliberation();
+    } else if (phase === 'approval_countdown') {
+      actions.setPhase('done');
+      onAutoApprove();
+    }
+    // Only react to the 0-crossing; deps intentionally narrow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft, phase]);
+
+  // Auto-collapse the drawer 2s after the flow completes so the user sees the
+  // summary, then the UI gets out of the way. The pill itself unmounts on 'done'.
+  useEffect(() => {
+    if (phase !== 'done') return;
+    const t = setTimeout(() => {
+      actions.closeDrawer();
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [phase, actions]);
 
   const startDeliberation = useCallback(async () => {
-    setPhase('deliberating');
-    setStatusText('Starting review...');
-    setErrorMsg('');
+    // Reset per-run state so a second review doesn't inherit logs/consensus
+    // from the first.
+    actions.resetForNewRun();
+    actions.openDrawer();
+    actions.setPhase('deliberating');
+    actions.appendLogRaw('Starting multi-LLM review...');
     consensusRef.current = '';
+    structuredRef.current = null;
+    planBeforeApplyRef.current = planRef.current;
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -130,12 +184,18 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
           try {
             const evt = JSON.parse(line.slice(6));
             if (evt.event === 'log') {
-              setStatusText(evt.message || 'Processing...');
+              // Append instead of overwrite — this is the core fix that
+              // gives the drawer something to show as history.
+              actions.appendLogRaw(evt.message || '');
             } else if (evt.event === 'error') {
               throw new Error(evt.message || 'Deliberation failed');
             } else if (evt.event === 'result') {
-              consensusRef.current = typeof evt.result === 'string' ? evt.result : JSON.stringify(evt.structured || evt.result);
+              consensusRef.current =
+                typeof evt.result === 'string'
+                  ? evt.result
+                  : JSON.stringify(evt.structured || evt.result);
               if (evt.structured) structuredRef.current = evt.structured;
+              actions.setConsensus(consensusRef.current);
             }
           } catch (e) {
             if (e instanceof SyntaxError) continue; // Skip malformed SSE
@@ -148,83 +208,93 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
         throw new Error('No result received from deliberation');
       }
 
-      // Apply the review feedback
       await applyFeedback(consensusRef.current);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
-      setPhase('error');
-      setErrorMsg(err.message || 'Unknown error');
+      const msg = err?.message || 'Unknown error';
+      actions.setError(msg);
+      actions.appendLog({ ts: Date.now(), level: 'error', text: msg });
+      actions.setPhase('error');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const buildReviewMeta = useCallback((): ReviewMeta | null => {
-    const s = structuredRef.current;
-    if (!s?.models) return null;
-    // Estimate cost using OpenRouter's approximate pricing (per 1M tokens)
-    const pricing: Record<string, { input: number; output: number }> = {
-      'google/gemini-3-flash-preview': { input: 0.05, output: 0.15 },
-      'openai/gpt-4.1-mini': { input: 0.40, output: 1.60 },
-      'x-ai/grok-4.1-fast': { input: 0.15, output: 0.60 },
-      'deepseek/deepseek-chat-v3-0324': { input: 0.14, output: 0.28 },
-      'mistralai/mistral-small-3.1-24b-instruct': { input: 0.10, output: 0.30 },
-    };
-    let totalCost = 0;
-    for (const m of s.models) {
-      const p = pricing[m.modelId] || { input: 0.20, output: 0.60 };
-      totalCost += (m.inputTokens * p.input + m.outputTokens * p.output) / 1_000_000;
-    }
-    if (s.synthesizer) {
-      const p = pricing[s.synthesizer.modelId] || { input: 0.20, output: 0.60 };
-      totalCost += (s.synthesizer.inputTokens * p.input + s.synthesizer.outputTokens * p.output) / 1_000_000;
-    }
-    return {
-      models: s.models,
-      synthesizer: s.synthesizer,
-      totalDurationMs: s.totalDurationMs || 0,
-      estimatedCost: totalCost,
-    };
-  }, []);
-
-  const applyFeedback = useCallback(async (feedback: string) => {
-    setPhase('applying');
-    setStatusText('Applying feedback...');
-
-    try {
-      const res = await fetch('/api/apply-review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: planRef.current, feedback }),
+  const applyFeedback = useCallback(
+    async (feedback: string) => {
+      actions.setPhase('applying');
+      actions.appendLog({
+        ts: Date.now(),
+        level: 'system',
+        text: 'Applying consensus feedback to plan...',
       });
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        throw new Error(err.error || `Failed to apply review`);
+      try {
+        const res = await fetch('/api/apply-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan: planRef.current, feedback }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `Failed to apply review`);
+        }
+
+        const data = await res.json();
+
+        // Compute diff stats BEFORE handing the new plan back to the parent,
+        // because once setMarkdown fires, planRef.current will update and we
+        // lose the original. planBeforeApplyRef captured the pre-deliberation
+        // version at startDeliberation() time.
+        const oldPlan = planBeforeApplyRef.current;
+        const newPlan: string = data.plan;
+        try {
+          const { stats } = computePlanDiff(oldPlan, newPlan);
+          actions.setDiffStats({
+            additions: stats.additions,
+            deletions: stats.deletions,
+          });
+        } catch {
+          // Diff failure is non-fatal — drawer just hides the Changes section.
+        }
+
+        onPlanRevised(newPlan, data.versionInfo);
+        onAnnotationsCleared?.();
+
+        const meta = estimateCost(structuredRef.current);
+        if (meta) {
+          actions.setMeta(meta);
+          onReviewComplete?.(meta);
+        }
+
+        actions.appendLog({
+          ts: Date.now(),
+          level: 'ok',
+          text: 'Plan updated. Auto-approving shortly…',
+        });
+
+        // Atomic transition to the approval countdown.
+        actions.beginCountdown('approval_countdown', countdownSeconds);
+      } catch (err: any) {
+        const msg = err?.message || 'Failed to apply feedback';
+        actions.setError(msg);
+        actions.appendLog({ ts: Date.now(), level: 'error', text: msg });
+        actions.setPhase('error');
       }
-
-      const data = await res.json();
-      onPlanRevised(data.plan, data.versionInfo);
-      onAnnotationsCleared?.();
-
-      const meta = buildReviewMeta();
-      if (meta) onReviewComplete?.(meta);
-
-      // Start approval countdown
-      setSecondsLeft(countdownSeconds);
-      setPhase('approval_countdown');
-    } catch (err: any) {
-      setPhase('error');
-      setErrorMsg(err.message || 'Failed to apply feedback');
-    }
-  }, [countdownSeconds, onPlanRevised, onAnnotationsCleared]);
+    },
+    // `actions` is stable (memoized inside the provider) so omitting it is safe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [countdownSeconds, onPlanRevised, onAnnotationsCleared, onReviewComplete],
+  );
 
   const handlePause = () => {
-    if (phase === 'countdown') setPhase('paused');
-    else if (phase === 'approval_countdown') setPhase('approval_paused');
+    if (phase === 'countdown') actions.setPhase('paused');
+    else if (phase === 'approval_countdown') actions.setPhase('approval_paused');
   };
 
   const handleResume = () => {
-    if (phase === 'paused') setPhase('countdown');
-    else if (phase === 'approval_paused') setPhase('approval_countdown');
+    if (phase === 'paused') actions.setPhase('countdown');
+    else if (phase === 'approval_paused') actions.setPhase('approval_countdown');
   };
 
   const handleRunNow = () => {
@@ -234,9 +304,16 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   };
 
   const handleStop = () => {
-    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    setPhase('idle');
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    actions.setPhase('idle');
+    actions.closeDrawer();
   };
 
   const handleRetry = () => {
@@ -245,12 +322,21 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
 
   if (phase === 'idle' || phase === 'done' || disabled) return null;
 
-  // Circular progress for countdowns
-  const progress = (phase === 'countdown' || phase === 'approval_countdown')
-    ? secondsLeft / countdownSeconds
-    : 0;
+  const progress =
+    phase === 'countdown' || phase === 'approval_countdown'
+      ? secondsLeft / countdownSeconds
+      : 0;
   const circumference = 2 * Math.PI * 8;
   const dashOffset = circumference * (1 - progress);
+
+  // The drawer chevron is visible during and after deliberation so users can
+  // reopen the console to re-inspect logs/consensus after dismissing it.
+  const showChevron =
+    phase === 'deliberating' ||
+    phase === 'applying' ||
+    phase === 'approval_countdown' ||
+    phase === 'approval_paused' ||
+    phase === 'error';
 
   return (
     <div className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-primary/10 border border-primary/20 text-primary select-none">
@@ -266,19 +352,35 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
               className="transition-[stroke-dashoffset] duration-1000 ease-linear"
             />
           </svg>
-          <span className="whitespace-nowrap" title={phase === 'countdown' ? 'Will run multi-LLM review: 4 models deliberate on your plan, then auto-revise it' : 'Will auto-approve the revised plan'}>
-            {phase === 'countdown' ? `Multi-LLM review in ${secondsLeft}s` : `Auto-approve in ${secondsLeft}s`}
+          <span
+            className="whitespace-nowrap"
+            title={
+              phase === 'countdown'
+                ? 'Will run multi-LLM review: 4 models deliberate on your plan, then auto-revise it'
+                : 'Will auto-approve the revised plan'
+            }
+          >
+            {phase === 'countdown'
+              ? `Multi-LLM review in ${secondsLeft}s`
+              : `Auto-approve in ${secondsLeft}s`}
           </span>
           <button onClick={handlePause} className="p-0.5 rounded hover:bg-primary/20" title="Pause countdown">
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16"><rect x="4" y="3" width="3" height="10" rx="0.5" /><rect x="9" y="3" width="3" height="10" rx="0.5" /></svg>
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16">
+              <rect x="4" y="3" width="3" height="10" rx="0.5" />
+              <rect x="9" y="3" width="3" height="10" rx="0.5" />
+            </svg>
           </button>
           {phase === 'countdown' && (
             <button onClick={handleRunNow} className="p-0.5 rounded hover:bg-primary/20" title="Run multi-LLM review now">
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3l8 5-8 5V3z" /></svg>
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M5 3l8 5-8 5V3z" />
+              </svg>
             </button>
           )}
           <button onClick={handleStop} className="p-0.5 rounded hover:bg-muted text-muted-foreground" title="Cancel — stop auto-review">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2.5"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2.5">
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+            </svg>
           </button>
         </>
       )}
@@ -290,7 +392,9 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
             {phase === 'paused' ? 'Multi-LLM review paused' : 'Auto-approve paused'}
           </span>
           <button onClick={handleResume} className="p-0.5 rounded hover:bg-primary/20" title="Resume countdown">
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16"><path d="M5 3l8 5-8 5V3z" /></svg>
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M5 3l8 5-8 5V3z" />
+            </svg>
           </button>
           {phase === 'paused' && (
             <button onClick={handleRunNow} className="p-0.5 rounded hover:bg-primary/20 text-[10px]" title="Run multi-LLM review now">
@@ -298,21 +402,29 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
             </button>
           )}
           <button onClick={handleStop} className="p-0.5 rounded hover:bg-muted text-muted-foreground" title="Cancel — stop auto-review">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2.5"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2.5">
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+            </svg>
           </button>
         </>
       )}
 
-      {/* Deliberating */}
+      {/* Deliberating — concise phase label; log detail lives in the drawer */}
       {phase === 'deliberating' && (
         <>
           <svg className="w-4 h-4 animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
             <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.25" />
             <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <span className="whitespace-nowrap max-w-[180px] truncate">{statusText}</span>
-          <button onClick={handleStop} className="p-0.5 rounded hover:bg-destructive/20 text-destructive" title="Stop">
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1" /></svg>
+          <span className="whitespace-nowrap">Deliberating…</span>
+          <button
+            onClick={handleStop}
+            className="p-0.5 rounded hover:bg-destructive/20 text-destructive"
+            title="Stop"
+          >
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 16 16">
+              <rect x="3" y="3" width="10" height="10" rx="1" />
+            </svg>
           </button>
         </>
       )}
@@ -324,7 +436,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
             <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.25" />
             <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <span className="whitespace-nowrap">{statusText}</span>
+          <span className="whitespace-nowrap">Applying…</span>
         </>
       )}
 
@@ -341,9 +453,30 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
             </svg>
           </button>
           <button onClick={handleStop} className="p-0.5 rounded hover:bg-muted text-muted-foreground" title="Dismiss">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="2">
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+            </svg>
           </button>
         </>
+      )}
+
+      {/* Drawer chevron — shown whenever the console has content to reveal */}
+      {showChevron && (
+        <button
+          onClick={() => actions.toggleDrawer()}
+          className="p-0.5 rounded hover:bg-primary/20 shrink-0"
+          title={isDrawerOpen ? 'Hide multi-LLM console' : 'Show multi-LLM console'}
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${isDrawerOpen ? '' : 'rotate-180'}`}
+            fill="none"
+            viewBox="0 0 16 16"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
       )}
     </div>
   );
