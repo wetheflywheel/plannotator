@@ -20,6 +20,8 @@ interface AutoReviewCountdownProps {
   hasAnnotations: boolean;
   disabled?: boolean;
   countdownSeconds?: number;
+  /** When true, a multi-LLM review already completed (e.g. via shell) — skip deliberation and jump to approval countdown. */
+  reviewAlreadyDone?: boolean;
 }
 
 // OpenRouter pricing (USD per 1M tokens). Keep in sync with server/apply-review.
@@ -30,6 +32,51 @@ const PRICING: Record<string, { input: number; output: number }> = {
   'deepseek/deepseek-chat-v3-0324': { input: 0.14, output: 0.28 },
   'mistralai/mistral-small-3.1-24b-instruct': { input: 0.10, output: 0.30 },
 };
+
+// Short names from council.py → human-readable labels for the console.
+const MODEL_SHORT_NAMES: Record<string, string> = {
+  gemini: 'Gemini',
+  gpt: 'GPT-4.1 Mini',
+  grok: 'Grok',
+  deepseek: 'DeepSeek',
+  mistral: 'Mistral',
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  diverge: 'Diverge',
+  rank: 'Rank',
+  synthesize: 'Synthesize',
+};
+
+/** Convert a council.py structured event into a human-readable log line. */
+function councilEventToLog(evt: any): string | null {
+  switch (evt.event) {
+    case 'stage_start': {
+      const stage = STAGE_LABELS[evt.stage] || evt.stage;
+      const models = (evt.models as string[] | undefined)
+        ?.map((m: string) => MODEL_SHORT_NAMES[m] || m)
+        .join(', ');
+      return models
+        ? `Stage: ${stage} (${models})`
+        : `Stage: ${stage}`;
+    }
+    case 'model_done': {
+      const name = MODEL_SHORT_NAMES[evt.model] || evt.model;
+      return evt.status === 'success'
+        ? `✓ ${name} done`
+        : `❌ ${name} failed`;
+    }
+    case 'stage_done': {
+      const stage = STAGE_LABELS[evt.stage] || evt.stage;
+      const dur = evt.duration_ms
+        ? ` (${(evt.duration_ms / 1000).toFixed(1)}s)`
+        : '';
+      return `✓ ${stage} complete${dur}`;
+    }
+    default:
+      return null;
+  }
+}
 
 function estimateCost(structured: any): ReviewMeta | null {
   if (!structured?.models) return null;
@@ -62,6 +109,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   hasAnnotations,
   disabled = false,
   countdownSeconds = 45,
+  reviewAlreadyDone = false,
 }) => {
   const { phase, secondsLeft, errorMsg, isDrawerOpen, actions } = useAutoReview();
 
@@ -81,9 +129,17 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   }, [plan]);
 
   // Auto-start the countdown on mount (unless disabled).
+  // If a multi-LLM review already ran (e.g. via shell), skip straight to
+  // the approval countdown — no need to deliberate again.
   useEffect(() => {
     if (!disabled) {
-      actions.beginCountdown('countdown', countdownSeconds);
+      if (reviewAlreadyDone) {
+        actions.appendLogRaw('Multi-LLM review already completed — skipping to approval.');
+        actions.openDrawer();
+        actions.beginCountdown('approval_countdown', countdownSeconds);
+      } else {
+        actions.beginCountdown('countdown', countdownSeconds);
+      }
     }
     // Intentionally run once on mount — the pill lives for the session and
     // doesn't restart if the parent re-renders with new props.
@@ -164,6 +220,13 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (res.status === 409) {
+          // council.py already running (e.g. triggered via shell) — silently stop
+          actions.appendLog({ ts: Date.now(), level: 'info', text: 'Skipped — review already running in shell' });
+          actions.setPhase('idle');
+          actions.closeDrawer();
+          return;
+        }
         throw new Error(err.error || `HTTP ${res.status}`);
       }
 
@@ -184,8 +247,6 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
           try {
             const evt = JSON.parse(line.slice(6));
             if (evt.event === 'log') {
-              // Append instead of overwrite — this is the core fix that
-              // gives the drawer something to show as history.
               actions.appendLogRaw(evt.message || '');
             } else if (evt.event === 'error') {
               throw new Error(evt.message || 'Deliberation failed');
@@ -196,6 +257,10 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
                   : JSON.stringify(evt.structured || evt.result);
               if (evt.structured) structuredRef.current = evt.structured;
               actions.setConsensus(consensusRef.current);
+            } else {
+              // Council.py structured events (stage_start, model_done, stage_done)
+              const logMsg = councilEventToLog(evt);
+              if (logMsg) actions.appendLogRaw(logMsg);
             }
           } catch (e) {
             if (e instanceof SyntaxError) continue; // Skip malformed SSE
@@ -212,8 +277,14 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       const msg = err?.message || 'Unknown error';
-      actions.setError(msg);
-      actions.appendLog({ ts: Date.now(), level: 'error', text: msg });
+      // Surface actionable detail for network errors
+      const detail =
+        err?.name === 'TypeError' && msg === 'Failed to fetch'
+          ? 'Failed to fetch — server may have restarted. Try refreshing the page.'
+          : msg;
+      console.error('[plannotator] multi-LLM review error:', err);
+      actions.setError(detail);
+      actions.appendLog({ ts: Date.now(), level: 'error', text: detail });
       actions.setPhase('error');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

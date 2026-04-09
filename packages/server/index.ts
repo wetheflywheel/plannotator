@@ -300,7 +300,23 @@ export async function startPlannotatorServer(
                 serverConfig: getServerConfig(gitUser),
               });
             }
-            return Response.json({ plan, origin, permissionMode, sharingEnabled, shareBaseUrl, pasteApiUrl, repoInfo, previousPlan, versionInfo, projectRoot: process.cwd(), isWSL: wslFlag, serverConfig: getServerConfig(gitUser) });
+            // Check if a multi-LLM review already completed recently (e.g. via shell)
+            let reviewAlreadyDone = false;
+            try {
+              const markerPath = resolve(homedir(), ".plannotator", "council-done.json");
+              const stat = Bun.file(markerPath);
+              if (await stat.exists()) {
+                const marker = JSON.parse(await stat.text());
+                const ageMs = Date.now() - (marker.ts ?? 0) * 1000;
+                if (ageMs < 5 * 60 * 1000) {
+                  reviewAlreadyDone = true;
+                  // Delete marker so it's consumed only once
+                  const fs = await import("fs/promises");
+                  await fs.unlink(markerPath).catch(() => {});
+                }
+              }
+            } catch {}
+            return Response.json({ plan, origin, permissionMode, sharingEnabled, shareBaseUrl, pasteApiUrl, repoInfo, previousPlan, versionInfo, projectRoot: process.cwd(), isWSL: wslFlag, serverConfig: getServerConfig(gitUser), reviewAlreadyDone });
           }
 
           // API: Serve a linked markdown document
@@ -447,6 +463,17 @@ export async function startPlannotatorServer(
           // API: Multi-LLM review (streaming SSE)
           if (url.pathname === "/api/multi-llm-review-stream" && req.method === "POST") {
             try {
+              // Guard: skip if council.py is already running (e.g. triggered via shell skill)
+              const pgrep = Bun.spawn(["pgrep", "-f", "council\\.py"], { stdout: "pipe", stderr: "pipe" });
+              const pgrepOut = await new Response(pgrep.stdout).text();
+              await pgrep.exited;
+              if (pgrepOut.trim()) {
+                return Response.json(
+                  { error: "Multi-LLM review already in progress (council.py running)" },
+                  { status: 409 },
+                );
+              }
+
               const body = (await req.json()) as { plan?: string; question?: string };
               const planText = body.plan || plan;
               const question = body.question || `Review this implementation plan and provide feedback on completeness, risks, and improvements:\n${planText}`;
@@ -475,9 +502,14 @@ export async function startPlannotatorServer(
 
               const stream = new ReadableStream({
                 async start(controller) {
+                  /** Emit a single SSE event with proper double-newline termination. */
+                  const emit = (data: string) => {
+                    controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                  };
+
                   // Heartbeat keeps the SSE connection alive during long model calls
                   const heartbeat = setInterval(() => {
-                    try { controller.enqueue(encoder.encode(": heartbeat\n")); } catch {}
+                    try { controller.enqueue(encoder.encode(": heartbeat\n\n")); } catch {}
                   }, 5_000);
 
                   try {
@@ -496,14 +528,14 @@ export async function startPlannotatorServer(
                           if (!trimmed) continue;
                           try {
                             JSON.parse(trimmed);
-                            controller.enqueue(encoder.encode(`data: ${trimmed}\n`));
+                            emit(trimmed);
                           } catch {
-                            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "log", message: trimmed })}\n`));
+                            emit(JSON.stringify({ event: "log", message: trimmed }));
                           }
                         }
                       }
                       if (buffer.trim()) {
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "log", message: buffer.trim() })}\n`));
+                        emit(JSON.stringify({ event: "log", message: buffer.trim() }));
                       }
                     } catch { /* reader error */ }
 
@@ -512,13 +544,13 @@ export async function startPlannotatorServer(
                     const exitCode = await proc.exited;
 
                     if (exitCode !== 0) {
-                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "error", message: `Deliberation failed (exit ${exitCode})` })}\n`));
+                      emit(JSON.stringify({ event: "error", message: `Deliberation failed (exit ${exitCode})` }));
                     } else {
                       try {
                         const structured = JSON.parse(stdout);
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "result", ok: true, result: structured.consensus, structured })}\n`));
+                        emit(JSON.stringify({ event: "result", ok: true, result: structured.consensus, structured }));
                       } catch {
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ event: "result", ok: true, result: stdout })}\n`));
+                        emit(JSON.stringify({ event: "result", ok: true, result: stdout }));
                       }
                     }
                   } finally {
@@ -547,6 +579,17 @@ export async function startPlannotatorServer(
           // API: Multi-LLM review (non-streaming fallback)
           if (url.pathname === "/api/multi-llm-review" && req.method === "POST") {
             try {
+              // Guard: skip if council.py is already running
+              const pgrep = Bun.spawn(["pgrep", "-f", "council\\.py"], { stdout: "pipe", stderr: "pipe" });
+              const pgrepOut = await new Response(pgrep.stdout).text();
+              await pgrep.exited;
+              if (pgrepOut.trim()) {
+                return Response.json(
+                  { error: "Multi-LLM review already in progress (council.py running)" },
+                  { status: 409 },
+                );
+              }
+
               const body = (await req.json()) as { plan?: string; question?: string };
               const planText = body.plan || plan;
               const question = body.question || `Review this implementation plan and provide feedback on completeness, risks, and improvements:\n${planText}`;
