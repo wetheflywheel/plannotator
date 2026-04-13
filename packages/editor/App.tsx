@@ -846,13 +846,18 @@ const AppInner: React.FC = () => {
         body.feedback = hookText;
       }
 
-      await fetch('/api/approve', {
+      const res = await fetch('/api/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `Approve failed: HTTP ${res.status}`);
+      }
       setSubmitted('approved');
-    } catch {
+    } catch (err) {
+      console.error('[plannotator] approve failed:', err);
       setIsSubmitting(false);
     }
   };

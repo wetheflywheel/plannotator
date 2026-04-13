@@ -5,6 +5,7 @@ import {
   type ReviewMeta,
 } from '../contexts/AutoReviewContext';
 import { computePlanDiff } from '../utils/planDiffEngine';
+import { requestNotificationPermission, notify } from '../utils/notifications';
 
 // Re-export ReviewMeta so existing callers (`@plannotator/ui/components/AutoReviewCountdown`)
 // keep working without touching their imports.
@@ -128,6 +129,11 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
     planRef.current = plan;
   }, [plan]);
 
+  // Request notification permission early so later notifications work.
+  useEffect(() => {
+    requestNotificationPermission();
+  }, []);
+
   // Auto-start the countdown on mount (unless disabled).
   // If a multi-LLM review already ran (e.g. via shell), skip straight to
   // the approval countdown — no need to deliberate again.
@@ -137,6 +143,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
         actions.appendLogRaw('Multi-LLM review already completed — skipping to approval.');
         actions.openDrawer();
         actions.beginCountdown('approval_countdown', countdownSeconds);
+        notify('Plannotator', 'Multi-LLM review complete — auto-approving shortly.');
       } else {
         actions.beginCountdown('countdown', countdownSeconds);
       }
@@ -179,8 +186,14 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
     if (phase === 'countdown') {
       startDeliberation();
     } else if (phase === 'approval_countdown') {
-      actions.setPhase('done');
+      // Call onAutoApprove BEFORE setting phase to 'done'. handleApprove is
+      // async so it starts the fetch immediately; setPhase('done') then
+      // unmounts this component on the next render, but the promise
+      // continues independently. Calling approve first ensures the fetch
+      // is initiated before any unmount risk.
+      notify('Plannotator', 'Plan auto-approved — Claude Code will continue.');
       onAutoApprove();
+      actions.setPhase('done');
     }
     // Only react to the 0-crossing; deps intentionally narrow.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,6 +216,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
     actions.openDrawer();
     actions.setPhase('deliberating');
     actions.appendLogRaw('Starting multi-LLM review...');
+    notify('Plannotator', 'Multi-LLM review started — models are deliberating.');
     consensusRef.current = '';
     structuredRef.current = null;
     planBeforeApplyRef.current = planRef.current;
@@ -286,6 +300,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
       actions.setError(detail);
       actions.appendLog({ ts: Date.now(), level: 'error', text: detail });
       actions.setPhase('error');
+      notify('Plannotator — Error', detail);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -344,6 +359,8 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
           text: 'Plan updated. Auto-approving shortly…',
         });
 
+        notify('Plannotator', `Plan revised by consensus — auto-approving in ${countdownSeconds}s.`);
+
         // Atomic transition to the approval countdown.
         actions.beginCountdown('approval_countdown', countdownSeconds);
       } catch (err: any) {
@@ -351,6 +368,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
         actions.setError(msg);
         actions.appendLog({ ts: Date.now(), level: 'error', text: msg });
         actions.setPhase('error');
+        notify('Plannotator — Error', msg);
       }
     },
     // `actions` is stable (memoized inside the provider) so omitting it is safe.
