@@ -46,6 +46,8 @@ export interface UsePlanDiffReturn {
   fetchingVersion: number | null;
   /** Fetch the version list for the sidebar */
   fetchVersions: () => Promise<void>;
+  /** Imperatively set the diff base plan (avoids useEffect delay) */
+  setBasePlan: (plan: string) => void;
 }
 
 export function usePlanDiff(
@@ -64,16 +66,17 @@ export function usePlanDiff(
   const [isSelectingVersion, setIsSelectingVersion] = useState(false);
   const [fetchingVersion, setFetchingVersion] = useState<number | null>(null);
 
-  // Sync diffBasePlan when initialPreviousPlan arrives after mount (API response)
+  // Sync diffBasePlan when initialPreviousPlan changes (initial API response or
+  // after multi-LLM deliberation revises the plan and sets a new base).
   useEffect(() => {
-    if (initialPreviousPlan && !diffBasePlan) {
+    if (initialPreviousPlan) {
       setDiffBasePlan(initialPreviousPlan);
     }
   }, [initialPreviousPlan]);
 
-  // Sync diffBaseVersion when versionInfo arrives after mount
+  // Sync diffBaseVersion when versionInfo changes (initial load or after deliberation)
   useEffect(() => {
-    if (versionInfo && versionInfo.version > 1 && diffBaseVersion === null) {
+    if (versionInfo && versionInfo.version > 1) {
       setDiffBaseVersion(versionInfo.version - 1);
     }
   }, [versionInfo]);
@@ -143,5 +146,6 @@ export function usePlanDiff(
     isSelectingVersion,
     fetchingVersion,
     fetchVersions,
+    setBasePlan: setDiffBasePlan,
   };
 }

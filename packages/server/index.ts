@@ -145,7 +145,10 @@ const RETRY_DELAY_MS = 500;
 export async function startPlannotatorServer(
   options: ServerOptions
 ): Promise<ServerResult> {
-  const { plan, origin, htmlContent, permissionMode, sharingEnabled = true, shareBaseUrl, pasteApiUrl, onReady, mode, customPlanPath } = options;
+  const { plan: initialPlan, origin, htmlContent, permissionMode, sharingEnabled = true, shareBaseUrl, pasteApiUrl, onReady, mode, customPlanPath } = options;
+
+  // Mutable: updated when multi-LLM deliberation revises the plan
+  let plan = initialPlan;
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
@@ -695,6 +698,9 @@ INSTRUCTIONS:
               if (!revisedPlan) {
                 return Response.json({ error: "No response from revision model" }, { status: 502 });
               }
+
+              // Update the server's plan so approve/deny use the revised version
+              plan = revisedPlan;
 
               const historyResult = saveToHistory(project, slug, revisedPlan);
               const newVersionInfo = {

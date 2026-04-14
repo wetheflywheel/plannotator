@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
-import { type Origin, getAgentName } from '@plannotator/shared/agents';
+import { type Origin, getAgentName, getAgentBadge } from '@plannotator/shared/agents';
 import { parseMarkdownToBlocks, exportAnnotations, exportLinkedDocAnnotations, exportEditorAnnotations, extractFrontmatter, wrapFeedbackForAgent, Frontmatter } from '@plannotator/ui/utils/parser';
 import { Viewer, ViewerHandle } from '@plannotator/ui/components/Viewer';
 import { AnnotationPanel } from '@plannotator/ui/components/AnnotationPanel';
@@ -1375,9 +1375,14 @@ const AppInner: React.FC = () => {
                 {!annotateMode && (
                   <AutoReviewCountdown
                     plan={markdown}
-                    onPlanRevised={(newPlan, versionInfo) => {
-                      setMarkdown(newPlan);
+                    onPlanRevised={(newPlan, newVersionInfo) => {
+                      // Set base plan directly (not via effect) so diff computes
+                      // in the same render cycle as setIsPlanDiffActive(true).
+                      planDiff.setBasePlan(markdown);
                       setPreviousPlan(markdown);
+                      setMarkdown(newPlan);
+                      setVersionInfo(newVersionInfo);
+                      setIsPlanDiffActive(true);
                     }}
                     onAutoApprove={handleApprove}
                     onAnnotationsCleared={() => {
