@@ -21,6 +21,8 @@ interface AutoReviewCountdownProps {
   hasAnnotations: boolean;
   disabled?: boolean;
   countdownSeconds?: number;
+  /** Seconds for the post-deliberation approval countdown (default: 10). */
+  approvalCountdownSeconds?: number;
   /** When true, a multi-LLM review already completed (e.g. via shell) — skip deliberation and jump to approval countdown. */
   reviewAlreadyDone?: boolean;
 }
@@ -110,6 +112,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   hasAnnotations,
   disabled = false,
   countdownSeconds = 45,
+  approvalCountdownSeconds = 10,
   reviewAlreadyDone = false,
 }) => {
   const { phase, secondsLeft, errorMsg, isDrawerOpen, actions } = useAutoReview();
@@ -142,7 +145,7 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
       if (reviewAlreadyDone) {
         actions.appendLogRaw('Multi-LLM review already completed — skipping to approval.');
         actions.openDrawer();
-        actions.beginCountdown('approval_countdown', countdownSeconds);
+        actions.beginCountdown('approval_countdown', approvalCountdownSeconds);
         notify('Plannotator', 'Multi-LLM review complete — auto-approving shortly.');
       } else {
         actions.beginCountdown('countdown', countdownSeconds);
@@ -359,10 +362,10 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
           text: 'Plan updated. Auto-approving shortly…',
         });
 
-        notify('Plannotator', `Plan revised by consensus — auto-approving in ${countdownSeconds}s.`);
+        notify('Plannotator', `Plan revised by consensus — auto-approving in ${approvalCountdownSeconds}s.`);
 
         // Atomic transition to the approval countdown.
-        actions.beginCountdown('approval_countdown', countdownSeconds);
+        actions.beginCountdown('approval_countdown', approvalCountdownSeconds);
       } catch (err: any) {
         const msg = err?.message || 'Failed to apply feedback';
         actions.setError(msg);

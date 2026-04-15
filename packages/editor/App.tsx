@@ -153,6 +153,7 @@ const AppInner: React.FC = () => {
   const [activeHooks, setActiveHooks] = useState<string[]>([]);
   const [automationsList, setAutomationsList] = useState<Automation[]>([]);
   const [submitted, setSubmitted] = useState<'approved' | 'denied' | 'exited' | null>(null);
+  const [wasAutoApproved, setWasAutoApproved] = useState(false);
   const [pendingPasteImage, setPendingPasteImage] = useState<{ file: File; blobUrl: string; initialName: string } | null>(null);
   const [showPermissionModeSetup, setShowPermissionModeSetup] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('bypassPermissions');
@@ -602,10 +603,10 @@ const AppInner: React.FC = () => {
         }
         if (data.origin) {
           setOrigin(data.origin);
-          // For Claude Code, check if user needs to configure permission mode
-          if (data.origin === 'claude-code' && needsPermissionModeSetup()) {
-            setShowPermissionModeSetup(true);
-          }
+          // Permission mode setup disabled — use Settings instead if needed.
+          // if (data.origin === 'claude-code' && needsPermissionModeSetup()) {
+          //   setShowPermissionModeSetup(true);
+          // }
           // Load saved permission mode preference
           setPermissionMode(getPermissionModeSettings().mode);
         }
@@ -1383,8 +1384,15 @@ const AppInner: React.FC = () => {
                       setMarkdown(newPlan);
                       setVersionInfo(newVersionInfo);
                       setIsPlanDiffActive(true);
+                      // Scroll to top so the diff view is visible
+                      scrollViewport.current?.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
-                    onAutoApprove={handleApprove}
+                    onAutoApprove={() => {
+                      setWasAutoApproved(true);
+                      handleApprove();
+                      // Scroll to top so the "implementation running" banner is visible
+                      scrollViewport.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
                     onAnnotationsCleared={() => {
                       setAnnotations([]);
                       setGlobalAttachments([]);
@@ -1678,6 +1686,25 @@ const AppInner: React.FC = () => {
                 </div>
               )}
 
+              {/* Auto-approved banner — shown when deliberation auto-approved, keeps plan visible */}
+              {wasAutoApproved && submitted === 'approved' && (
+                <div className="w-full flex justify-center mb-4">
+                  <div className="w-full max-w-3xl mx-auto">
+                    <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-success/10 border border-success/20">
+                      <div className="w-8 h-8 rounded-full bg-success/20 flex items-center justify-center shrink-0">
+                        <svg className="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">Plan approved — implementation running</p>
+                        <p className="text-xs text-muted-foreground">{agentName} is implementing the revised plan below. You can close this tab.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Plan Diff View — rendered when diff data exists, hidden when inactive */}
               {planDiff.diffBlocks && planDiff.diffStats && (
                 <div className="w-full flex justify-center" style={{ display: isPlanDiffActive ? undefined : 'none' }}>
@@ -1897,9 +1924,9 @@ const AppInner: React.FC = () => {
           </div>
         )}
 
-        {/* Completion overlay - shown after approve/deny */}
+        {/* Completion overlay - shown after approve/deny (skip for auto-approve so user can read the revised plan) */}
         <CompletionOverlay
-          submitted={submitted}
+          submitted={wasAutoApproved ? null : submitted}
           title={
             archive.archiveMode ? 'Archive Closed'
             : submitted === 'exited' ? 'Session Closed'
