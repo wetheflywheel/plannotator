@@ -1385,13 +1385,13 @@ const AppInner: React.FC = () => {
                       setVersionInfo(newVersionInfo);
                       setIsPlanDiffActive(true);
                       // Scroll to top so the diff view is visible
-                      scrollViewport.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                      scrollViewport?.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
                     onAutoApprove={() => {
                       setWasAutoApproved(true);
                       handleApprove();
                       // Scroll to top so the "implementation running" banner is visible
-                      scrollViewport.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                      scrollViewport?.scrollTo({ top: 0, behavior: 'smooth' });
                     }}
                     onAnnotationsCleared={() => {
                       setAnnotations([]);
