@@ -465,6 +465,8 @@ bun run --cwd apps/review build && bun run build:hook && \
 
 Running only `build:opencode` will copy stale HTML files.
 
+**IMPORTANT: code changes are not live for agents until you rebuild + recompile.** Editing `.ts`/`.tsx` files only updates source — Claude Code agents invoke the compiled binary at `~/.local/bin/plannotator` (and the `.ipe` mirror, see auto-memory). After ANY change to `packages/ui/`, `packages/editor/`, `packages/review-editor/`, `packages/server/`, or `apps/hook/`, you MUST run the full rebuild sequence above before the change takes effect. Already-running plannotator server processes (one per active hook invocation) also need to die — they hold the old binary in memory. Check with `pgrep -fl plannotator` and let them exit naturally or kill them. Tell the user explicitly when a rebuild is required so they don't test against stale code.
+
 ## Marketing Site
 
 `apps/marketing/` is the plannotator.ai website — landing page, documentation, and blog. Built with Astro 5 (static output, zero client JS except a theme toggle island). Docs are markdown files in `src/content/docs/`, blog posts in `src/content/blog/`, both using Astro content collections. Tailwind CSS v4 via `@tailwindcss/vite`. Deploys to S3/CloudFront via GitHub Actions on push to main.

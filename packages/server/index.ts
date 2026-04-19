@@ -46,6 +46,12 @@ import { handleDoc, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc
 import { templateToEntry, type AutomationEntry } from "./automations";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
+import { createExecutionWatch } from "./execution-watch";
+import { scanPlanAgainstClaudeMd, violationToAnnotationInput } from "./claude-md-rules";
+import { addWaiver, removeWaiver, loadWaivers } from "./claude-md-waivers";
+import { runRedTeamReview, runRedTeamReviewStreaming } from "./red-team-review";
+import { evaluatePolicy } from "./policies";
+import { findSimilarPastPlans, similarPlanToAnnotationInput } from "./archive-similarity";
 import { isWSL } from "./browser";
 
 // Re-export utilities
@@ -173,7 +179,50 @@ export async function startPlannotatorServer(
   const draftKey = mode !== "archive" ? contentHash(plan) : "";
   const editorAnnotations = mode !== "archive" ? createEditorAnnotationHandler() : null;
   const externalAnnotations = mode !== "archive" ? createExternalAnnotationHandler("plan") : null;
+  // Live execution mirror — only relevant during plan-review sessions.
+  // Inert until `start(sinceMs)` is called from the approve handler.
+  const executionWatch = mode !== "archive" ? createExecutionWatch(process.cwd()) : null;
   const slug = mode !== "archive" ? generateSlug(plan) : "";
+
+  // CLAUDE.md-aware static review: scan the plan against project + global
+  // rules and seed the external-annotation store before any client connects,
+  // so violations show up in the initial snapshot.
+  if (mode !== "archive" && externalAnnotations) {
+    try {
+      const projectName = await detectProjectName();
+      const violations = scanPlanAgainstClaudeMd(plan, process.cwd(), projectName ?? undefined);
+      if (violations.length > 0) {
+        const result = externalAnnotations.addAnnotations({
+          annotations: violations.map(violationToAnnotationInput),
+        });
+        if ("error" in result) {
+          console.error("[claude-md-rules] failed to add annotations:", result.error);
+        } else {
+          console.error(`[claude-md-rules] flagged ${violations.length} potential rule violation(s)`);
+        }
+      }
+    } catch (err) {
+      console.error("[claude-md-rules] scan failed:", err);
+    }
+
+    // Archive similarity: surface the most-similar past plan (if any) so the
+    // user sees prior decisions on related work before re-approving.
+    try {
+      const similar = findSimilarPastPlans(plan, 0.15, 1);
+      if (similar.length > 0) {
+        const result = externalAnnotations.addAnnotations({
+          annotations: similar.map(similarPlanToAnnotationInput),
+        });
+        if ("error" in result) {
+          console.error("[archive-similarity] failed to add annotations:", result.error);
+        } else {
+          console.error(`[archive-similarity] surfaced ${similar.length} similar past plan(s)`);
+        }
+      }
+    } catch (err) {
+      console.error("[archive-similarity] scan failed:", err);
+    }
+  }
 
   // Lazy cache for in-session archive browsing (plan review sidebar tab)
   let cachedArchivePlans: ReturnType<typeof listArchivedPlans> | null = null;
@@ -419,6 +468,12 @@ export async function startPlannotatorServer(
             disableIdleTimeout: () => server.timeout(req, 0),
           });
           if (externalResponse) return externalResponse;
+
+          // API: Live execution mirror (SSE-based, populated post-approve)
+          const executionResponse = await executionWatch?.handle(req, url, {
+            disableIdleTimeout: () => server.timeout(req, 0),
+          });
+          if (executionResponse) return executionResponse;
 
           // API: Automations CRUD
           const automationsResponse = await handleAutomationsRoute(req, url, "plan", options.bundledAutomations || []);
@@ -716,6 +771,121 @@ INSTRUCTIONS:
             }
           }
 
+          // API: Adversarial ("red-team") review — runs AFTER consensus has
+          // been applied. Single cheap model whose only job is to find what
+          // the council missed. Never blocks approval; UI fires fetch-and-forget.
+          if (url.pathname === "/api/red-team-review" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { plan?: unknown; consensus?: unknown };
+              const planText = body.plan;
+              const consensus = body.consensus;
+              if (typeof planText !== "string" || planText.trim().length === 0) {
+                return Response.json({ error: "plan is required (non-empty string)" }, { status: 400 });
+              }
+              if (typeof consensus !== "string" || consensus.trim().length === 0) {
+                return Response.json({ error: "consensus is required (non-empty string)" }, { status: 400 });
+              }
+
+              const result = await runRedTeamReview(planText, consensus);
+              return Response.json(result);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Red-team review failed";
+              console.error("[red-team]", err);
+              return Response.json({ error: message }, { status: 500 });
+            }
+          }
+
+          // API: Streaming adversarial review — same logic as /api/red-team-review
+          // but emits SSE chunks so the UI can render findings token-by-token.
+          if (url.pathname === "/api/red-team-review-stream" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { plan?: unknown; consensus?: unknown };
+              const planText = body.plan;
+              const consensus = body.consensus;
+              if (typeof planText !== "string" || planText.trim().length === 0) {
+                return Response.json({ error: "plan is required (non-empty string)" }, { status: 400 });
+              }
+              if (typeof consensus !== "string" || consensus.trim().length === 0) {
+                return Response.json({ error: "consensus is required (non-empty string)" }, { status: 400 });
+              }
+
+              server.timeout(req, 0);
+              const encoder = new TextEncoder();
+              const stream = new ReadableStream({
+                start(controller) {
+                  const send = (event: object) => {
+                    try {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                    } catch { /* controller closed */ }
+                  };
+                  runRedTeamReviewStreaming(planText, consensus, {
+                    onChunk: (chunk) => send({ event: "chunk", text: chunk }),
+                    onDone: ({ modelId, durationMs }) => {
+                      send({ event: "done", modelId, durationMs });
+                      try { controller.close(); } catch { /* already closed */ }
+                    },
+                    onError: (err) => {
+                      console.error("[red-team-stream]", err);
+                      send({ event: "error", message: err.message });
+                      try { controller.close(); } catch { /* already closed */ }
+                    },
+                  });
+                },
+              });
+
+              return new Response(stream, {
+                headers: {
+                  "Content-Type": "text/event-stream; charset=utf-8",
+                  "Cache-Control": "no-cache",
+                  Connection: "keep-alive",
+                },
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Red-team stream failed";
+              console.error("[red-team-stream]", err);
+              return Response.json({ error: message }, { status: 500 });
+            }
+          }
+
+          // API: CLAUDE.md rule waivers — list / add / remove per project
+          if (url.pathname === "/api/claude-md-rules/waive" && req.method === "GET") {
+            const proj = (await detectProjectName()) ?? "default";
+            return Response.json({ waived: loadWaivers(proj) });
+          }
+          if (url.pathname === "/api/claude-md-rules/waive" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { ruleId?: unknown };
+              if (typeof body.ruleId !== "string" || !body.ruleId) {
+                return Response.json({ error: "ruleId required (string)" }, { status: 400 });
+              }
+              const proj = (await detectProjectName()) ?? "default";
+              const list = addWaiver(proj, body.ruleId);
+              return Response.json({ waived: list });
+            } catch {
+              return Response.json({ error: "Invalid JSON" }, { status: 400 });
+            }
+          }
+          if (url.pathname === "/api/claude-md-rules/waive" && req.method === "DELETE") {
+            const ruleId = url.searchParams.get("ruleId");
+            if (!ruleId) return Response.json({ error: "?ruleId= required" }, { status: 400 });
+            const proj = (await detectProjectName()) ?? "default";
+            const list = removeWaiver(proj, ruleId);
+            return Response.json({ waived: list });
+          }
+
+          // API: Evaluate auto-approval policy against the current plan
+          if (url.pathname === "/api/policies/evaluate" && req.method === "POST") {
+            try {
+              const body = (await req.json()) as { plan?: unknown };
+              const planText = typeof body.plan === "string" ? body.plan : plan;
+              const proj = (await detectProjectName()) ?? "default";
+              const decision = evaluatePolicy(planText, proj);
+              return Response.json(decision);
+            } catch {
+              return Response.json({ error: "Invalid JSON" }, { status: 400 });
+            }
+          }
+
           // API: OpenRouter balance check
           if (url.pathname === "/api/openrouter/balance" && req.method === "GET") {
             try {
@@ -821,6 +991,12 @@ INSTRUCTIONS:
             // Use permission mode from client request if provided, otherwise fall back to hook input
             const effectivePermissionMode = requestedPermissionMode || permissionMode;
             resolveDecision({ approved: true, feedback, savedPath, agentSwitch, permissionMode: effectivePermissionMode });
+
+            // Kick off the live execution mirror — anchored at approval time
+            // so we only surface activity that happened *after* approval.
+            // Deny path intentionally does NOT start the watcher.
+            executionWatch?.start(Date.now());
+
             return Response.json({ ok: true, savedPath });
           }
 
@@ -912,6 +1088,11 @@ INSTRUCTIONS:
     isRemote,
     waitForDecision: () => decisionPromise,
     ...(donePromise && { waitForDone: () => donePromise }),
-    stop: () => server.stop(),
+    stop: () => {
+      // Tear down the execution watcher first so its fs.watch handle and
+      // poll interval are released before the HTTP server goes away.
+      executionWatch?.stop();
+      server.stop();
+    },
   };
 }

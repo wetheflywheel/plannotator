@@ -83,6 +83,14 @@ interface AutoReviewState {
   isDrawerOpen: boolean;
   /** Whether just the log pane is collapsed (summary sections still visible). */
   isLogCollapsed: boolean;
+  /**
+   * Adversarial ("red-team") pass — fired by the pill AFTER applyFeedback
+   * succeeds, runs in parallel with auto-approval. NEVER blocks approval;
+   * findings just stream into the drawer when they arrive.
+   */
+  redTeamFindings: string | null;
+  redTeamLoading: boolean;
+  redTeamError: string | null;
 }
 
 type Action =
@@ -107,7 +115,10 @@ type Action =
   | { type: 'open_drawer' }
   | { type: 'close_drawer' }
   | { type: 'toggle_drawer' }
-  | { type: 'toggle_log_collapsed' };
+  | { type: 'toggle_log_collapsed' }
+  | { type: 'set_red_team_loading'; loading: boolean }
+  | { type: 'set_red_team_findings'; findings: string | null }
+  | { type: 'set_red_team_error'; msg: string | null };
 
 const initialState: AutoReviewState = {
   phase: 'idle',
@@ -119,6 +130,9 @@ const initialState: AutoReviewState = {
   errorMsg: '',
   isDrawerOpen: false,
   isLogCollapsed: false,
+  redTeamFindings: null,
+  redTeamLoading: false,
+  redTeamError: null,
 };
 
 function reducer(state: AutoReviewState, action: Action): AutoReviewState {
@@ -145,7 +159,7 @@ function reducer(state: AutoReviewState, action: Action): AutoReviewState {
       return { ...state, errorMsg: action.msg };
     case 'reset_for_new_run':
       // Wipe everything that's scoped to a single deliberation cycle.
-      // Keeps meta/diff/consensus from a prior run from leaking into the next one.
+      // Keeps meta/diff/consensus/red-team from a prior run from leaking into the next one.
       return {
         ...state,
         logLines: [],
@@ -154,6 +168,9 @@ function reducer(state: AutoReviewState, action: Action): AutoReviewState {
         meta: null,
         errorMsg: '',
         isLogCollapsed: false,
+        redTeamFindings: null,
+        redTeamLoading: false,
+        redTeamError: null,
       };
     case 'open_drawer':
       return { ...state, isDrawerOpen: true };
@@ -163,6 +180,12 @@ function reducer(state: AutoReviewState, action: Action): AutoReviewState {
       return { ...state, isDrawerOpen: !state.isDrawerOpen };
     case 'toggle_log_collapsed':
       return { ...state, isLogCollapsed: !state.isLogCollapsed };
+    case 'set_red_team_loading':
+      return { ...state, redTeamLoading: action.loading };
+    case 'set_red_team_findings':
+      return { ...state, redTeamFindings: action.findings };
+    case 'set_red_team_error':
+      return { ...state, redTeamError: action.msg };
     default:
       return state;
   }
@@ -219,6 +242,9 @@ interface AutoReviewActions {
   closeDrawer: () => void;
   toggleDrawer: () => void;
   toggleLogCollapsed: () => void;
+  setRedTeamLoading: (loading: boolean) => void;
+  setRedTeamFindings: (findings: string | null) => void;
+  setRedTeamError: (msg: string | null) => void;
 }
 
 interface AutoReviewContextValue extends AutoReviewState {
@@ -249,6 +275,9 @@ export const AutoReviewProvider: React.FC<{ children: ReactNode }> = ({ children
       closeDrawer: () => dispatch({ type: 'close_drawer' }),
       toggleDrawer: () => dispatch({ type: 'toggle_drawer' }),
       toggleLogCollapsed: () => dispatch({ type: 'toggle_log_collapsed' }),
+      setRedTeamLoading: (loading) => dispatch({ type: 'set_red_team_loading', loading }),
+      setRedTeamFindings: (findings) => dispatch({ type: 'set_red_team_findings', findings }),
+      setRedTeamError: (msg) => dispatch({ type: 'set_red_team_error', msg }),
     }),
     [],
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import {
   useAutoReview,
   type AutoReviewPhase,
@@ -6,6 +6,7 @@ import {
 } from '../contexts/AutoReviewContext';
 import { computePlanDiff } from '../utils/planDiffEngine';
 import { requestNotificationPermission, notify } from '../utils/notifications';
+import { addCost, getTodayCost, getCostOverDays, formatCost, RED_TEAM_COST_ESTIMATE } from '../utils/costTracker';
 
 // Re-export ReviewMeta so existing callers (`@plannotator/ui/components/AutoReviewCountdown`)
 // keep working without touching their imports.
@@ -111,11 +112,12 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   onReviewComplete,
   hasAnnotations,
   disabled = false,
-  countdownSeconds = 45,
+  countdownSeconds = 30,
   approvalCountdownSeconds = 10,
   reviewAlreadyDone = false,
 }) => {
   const { phase, secondsLeft, errorMsg, isDrawerOpen, actions } = useAutoReview();
+  const [todayCost, setTodayCost] = useState<number>(() => getTodayCost());
 
   // Refs kept local — they're non-render state tied to the fetch lifecycle.
   const abortRef = useRef<AbortController | null>(null);
@@ -143,10 +145,11 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
   useEffect(() => {
     if (!disabled) {
       if (reviewAlreadyDone) {
-        actions.appendLogRaw('Multi-LLM review already completed — skipping to approval.');
+        actions.appendLogRaw('Multi-LLM review already completed — approving.');
         actions.openDrawer();
-        actions.beginCountdown('approval_countdown', approvalCountdownSeconds);
-        notify('Plannotator', 'Multi-LLM review complete — auto-approving shortly.');
+        notify('Plannotator', 'Multi-LLM review complete — auto-approving.');
+        onAutoApprove();
+        actions.setPhase('done');
       } else {
         actions.beginCountdown('countdown', countdownSeconds);
       }
@@ -354,18 +357,115 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
         if (meta) {
           actions.setMeta(meta);
           onReviewComplete?.(meta);
+          addCost(meta.estimatedCost);
+          setTodayCost(getTodayCost());
         }
 
         actions.appendLog({
           ts: Date.now(),
           level: 'ok',
-          text: 'Plan updated. Auto-approving shortly…',
+          text: 'Plan updated. Auto-approving…',
         });
 
-        notify('Plannotator', `Plan revised by consensus — auto-approving in ${approvalCountdownSeconds}s.`);
+        notify('Plannotator', 'Plan revised by consensus — auto-approving.');
 
-        // Atomic transition to the approval countdown.
-        actions.beginCountdown('approval_countdown', approvalCountdownSeconds);
+        // Fire-and-forget streaming adversarial review against the freshly-applied
+        // plan. Must NEVER delay onAutoApprove — chunks stream into the drawer
+        // as the model produces them.
+        actions.setRedTeamLoading(true);
+        actions.setRedTeamFindings('');
+        (async () => {
+          try {
+            const res = await fetch('/api/red-team-review-stream', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ plan: data.plan, consensus: feedback }),
+            });
+            if (!res.ok || !res.body) {
+              throw new Error(`HTTP ${res.status}`);
+            }
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let accumulated = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const evt = JSON.parse(line.slice(6));
+                  if (evt.event === 'chunk') {
+                    accumulated += evt.text;
+                    actions.setRedTeamFindings(accumulated);
+                  } else if (evt.event === 'done') {
+                    actions.setRedTeamLoading(false);
+                    addCost(RED_TEAM_COST_ESTIMATE);
+                    setTodayCost(getTodayCost());
+                    actions.appendLog({
+                      ts: Date.now(),
+                      level: 'info',
+                      text: `Adversarial review complete (${evt.modelId}, ${(evt.durationMs / 1000).toFixed(1)}s)`,
+                    });
+                  } else if (evt.event === 'error') {
+                    throw new Error(evt.message || 'Stream error');
+                  }
+                } catch (e) {
+                  if (e instanceof SyntaxError) continue;
+                  throw e;
+                }
+              }
+            }
+            actions.setRedTeamLoading(false);
+          } catch (err: any) {
+            console.error('[red-team] failed:', err);
+            actions.setRedTeamError(err?.message || 'Failed');
+            actions.setRedTeamLoading(false);
+          }
+        })();
+
+        // Policy gate: check if approval is allowed before auto-approving.
+        // A blocking policy converts auto-approve into a manual hold — the
+        // plan stays in review until the user clicks Approve in the main UI.
+        let policyAllows = true;
+        try {
+          const polRes = await fetch('/api/policies/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ plan: data.plan }),
+          });
+          if (polRes.ok) {
+            const decision = await polRes.json();
+            if (!decision.auto_approve) {
+              policyAllows = false;
+              const reasons = (decision.blocked_by || [])
+                .map((b: any) => `${b.pattern} → "${b.evidence}"`)
+                .join('; ');
+              actions.appendLog({
+                ts: Date.now(),
+                level: 'info',
+                text: `Auto-approve held by policy: ${reasons || 'matched a block pattern'}`,
+              });
+              actions.openDrawer();
+              notify('Plannotator', 'Auto-approve held — policy requires human review.');
+            }
+          }
+        } catch (err) {
+          console.error('[policies] evaluate failed:', err);
+          // On failure, default to auto-approving (fail-open) — policies are an
+          // additive guardrail, not a hard gate. User can still deny.
+        }
+
+        if (policyAllows) {
+          onAutoApprove();
+          actions.setPhase('done');
+        } else {
+          // Stay in 'applying' phase visually; user must approve manually.
+          actions.setPhase('idle');
+        }
       } catch (err: any) {
         const msg = err?.message || 'Failed to apply feedback';
         actions.setError(msg);
@@ -550,6 +650,16 @@ export const AutoReviewCountdown: React.FC<AutoReviewCountdownProps> = ({
             </svg>
           </button>
         </>
+      )}
+
+      {/* Daily LLM spend — informational, always visible alongside the pill content */}
+      {todayCost > 0 && (
+        <span
+          className="text-[10px] text-primary/70 tabular-nums whitespace-nowrap pl-1 border-l border-primary/20 ml-1"
+          title={`LLM spend today: ${formatCost(todayCost)} · last 7 days: ${formatCost(getCostOverDays(7))}`}
+        >
+          {formatCost(todayCost)}
+        </span>
       )}
 
       {/* Drawer chevron — shown whenever the console has content to reveal */}

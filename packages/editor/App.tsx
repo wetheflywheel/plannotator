@@ -14,6 +14,7 @@ import { AutomationsDropdown } from '@plannotator/ui/components/AutomationsDropd
 import { AutoReviewCountdown } from '@plannotator/ui/components/AutoReviewCountdown';
 import { ReviewMetaBanner } from '@plannotator/ui/components/ReviewMetaBanner';
 import { AutoReviewConsole } from '@plannotator/ui/components/AutoReviewConsole';
+import { ExecutionMirror } from '@plannotator/ui/components/ExecutionMirror';
 import { AutoReviewProvider, useAutoReview } from '@plannotator/ui/contexts/AutoReviewContext';
 import { formatPromptHooks, fetchAutomations, type Automation } from '@plannotator/ui/utils/automations';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
@@ -1032,6 +1033,19 @@ const AppInner: React.FC = () => {
     // Check membership by ID — source alone is insufficient because share-imported
     // and draft-restored annotations also carry source but live in local state.
     if (ann?.source && externalAnnotations.some(e => e.id === id)) {
+      // CLAUDE.md rule violations: dismissing also persists a waiver so the
+      // same rule won't fire on future plans in this project. Author format
+      // is "CLAUDE.md rules:<ruleId>" — extract the ruleId after the colon.
+      if (ann.source === 'claude-md-rules' && ann.author?.includes(':')) {
+        const ruleId = ann.author.split(':').slice(1).join(':');
+        if (ruleId) {
+          fetch('/api/claude-md-rules/waive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ruleId }),
+          }).catch((err) => console.error('[plannotator] waive failed:', err));
+        }
+      }
       deleteExternalAnnotation(id);
       if (selectedAnnotationId === id) setSelectedAnnotationId(null);
       return;
@@ -1685,6 +1699,10 @@ const AppInner: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Live execution mirror — post-approve activity feed (commits + file edits).
+                  Rendered for BOTH manual approve and deliberation auto-approve. */}
+              {submitted === 'approved' && <ExecutionMirror />}
 
               {/* Auto-approved banner — shown when deliberation auto-approved, keeps plan visible */}
               {wasAutoApproved && submitted === 'approved' && (

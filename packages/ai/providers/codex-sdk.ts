@@ -26,7 +26,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const PROVIDER_NAME = "codex-sdk";
-const DEFAULT_MODEL = "gpt-5.4";
+const DEFAULT_MODEL = "gpt-5.1-mini";
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -41,12 +41,9 @@ export class CodexSDKProvider implements AIProvider {
     tools: true,
   };
   readonly models = [
-    { id: 'gpt-5.4', label: 'GPT-5.4', default: true },
+    { id: 'gpt-5.1-mini', label: 'GPT-5.1 Mini', default: true },
     { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
-    { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
     { id: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
-    { id: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-    { id: 'gpt-5.2', label: 'GPT-5.2' },
   ] as const;
 
   private config: CodexSDKConfig;

@@ -123,6 +123,9 @@ export const AutoReviewConsole: React.FC<AutoReviewConsoleProps> = ({ onOpenDiff
     meta,
     isDrawerOpen,
     isLogCollapsed,
+    redTeamFindings,
+    redTeamLoading,
+    redTeamError,
     actions,
   } = useAutoReview();
 
@@ -156,6 +159,9 @@ export const AutoReviewConsole: React.FC<AutoReviewConsoleProps> = ({ onOpenDiff
   const hasConsensus = consensusText.trim().length > 0;
   const hasDiff = diffStats && (diffStats.additions > 0 || diffStats.deletions > 0);
   const hasMeta = meta && meta.models.length > 0;
+  const hasRedTeam = Boolean(
+    redTeamFindings || redTeamLoading || redTeamError,
+  );
 
   // Consensus collapse heuristic — show first ~5 lines, let user expand.
   const consensusLines = consensusText.split('\n');
@@ -290,6 +296,56 @@ export const AutoReviewConsole: React.FC<AutoReviewConsoleProps> = ({ onOpenDiff
           </div>
         )}
 
+        {/* Adversarial review — single cheap model that runs AFTER consensus
+            with the explicit job of finding what the council missed. Orange
+            callout to distinguish from the green "consensus achieved" tone. */}
+        {hasRedTeam && (
+          <section>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+                Adversarial review
+              </span>
+              <div className="flex-1 border-b border-border/60" />
+            </div>
+            {redTeamLoading && (
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground italic">
+                <svg className="w-3 h-3 animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                  <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                <span>Running adversarial pass…</span>
+              </div>
+            )}
+            {!redTeamLoading && redTeamError && (
+              <div className="text-[11px] text-muted-foreground italic">
+                Adversarial review failed: {redTeamError}
+              </div>
+            )}
+            {!redTeamLoading && !redTeamError && redTeamFindings && (
+              <div className="bg-warning/10 border border-warning/20 rounded p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg
+                    className="w-3.5 h-3.5 text-warning shrink-0"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M8 1.5l7 13H1l7-13z" strokeLinejoin="round" />
+                    <path d="M8 6.5v3.5M8 12v0.5" strokeLinecap="round" />
+                  </svg>
+                  <span className="text-[11px] font-medium text-foreground">
+                    Adversarial review · openai/gpt-4.1-mini
+                  </span>
+                </div>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90 font-sans">
+                  {redTeamFindings}
+                </pre>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Changes (diff stats) */}
         {hasDiff && (
           <section>
@@ -383,7 +439,7 @@ export const AutoReviewConsole: React.FC<AutoReviewConsoleProps> = ({ onOpenDiff
         )}
 
         {/* Empty state: drawer open but no data yet */}
-        {!hasLog && !hasConsensus && !hasDiff && !hasMeta && (
+        {!hasLog && !hasConsensus && !hasDiff && !hasMeta && !hasRedTeam && (
           <div className="text-[11px] text-muted-foreground italic py-2">
             Waiting for deliberation to start…
           </div>
