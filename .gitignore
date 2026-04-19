@@ -55,3 +55,6 @@ packages/automations/generated.ts
 .session-metrics.jsonl
 *.bun-build
 .gstack/
+
+# Claude Code harness state (worktrees, agent scratch dirs)
+.claude/
